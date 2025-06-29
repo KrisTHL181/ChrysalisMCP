@@ -1,6 +1,6 @@
-# ChrysalisMCP: A Retrieval-Augmented Generation (RAG) Platform
+# ChrysalisMCP: A Model Community Platform (MCP) Project
 
-ChrysalisMCP (Model Community Platform) is a powerful command-line interface (CLI) based application designed to enhance Large Language Models (LLMs) with advanced Retrieval-Augmented Generation (RAG) capabilities and a persistent memory system. It allows LLMs to leverage a local knowledge base for more accurate and context-aware responses, simulating a "global memory" for long-context processing.
+ChrysalisMCP (Model Community Platform) is a powerful command-line interface (CLI) based application designed to serve as a foundational platform for integrating and enhancing Large Language Models (LLMs) with advanced capabilities. It focuses on providing a robust framework for model interaction, including Retrieval-Augmented Generation (RAG) and a persistent memory system, allowing LLMs to leverage local knowledge bases for more accurate and context-aware responses, simulating a "global memory" for long-context processing.
 
 ## Features
 
