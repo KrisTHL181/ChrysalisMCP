@@ -15,26 +15,42 @@ import mimetypes
 from loguru import logger
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
+from rank_bm25 import BM25Okapi
 
 # RAG Configuration
 FAISS_INDEX_PATH = "faiss_index"
+CHUNKS_PATH = "chunks.json"
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 # Global RAG components
 rag_vectorstore = None
 rag_embeddings = None
+bm25_retriever = None
+all_chunks = []
 
 async def load_rag_components():
-    global rag_vectorstore, rag_embeddings
+    global rag_vectorstore, rag_embeddings, bm25_retriever, all_chunks
     logger.info("Loading RAG components...")
     try:
         rag_embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
         rag_vectorstore = FAISS.load_local(FAISS_INDEX_PATH, rag_embeddings, allow_dangerous_deserialization=True)
+        logger.info("FAISS vector store loaded.")
+
+        # Load all chunks for BM25
+        with open(CHUNKS_PATH, 'r', encoding='utf-8') as f:
+            all_chunks_data = json.load(f)
+        all_chunks = [d['page_content'] for d in all_chunks_data]
+        tokenized_corpus = [doc.split(" ") for doc in all_chunks]
+        bm25_retriever = BM25Okapi(tokenized_corpus)
+        logger.info("BM25 retriever initialized.")
+
         logger.info("RAG components loaded successfully.")
     except Exception as e:
         logger.error(f"Failed to load RAG components: {e}")
         rag_vectorstore = None
         rag_embeddings = None
+        bm25_retriever = None
+        all_chunks = []
 
 # --- Resource Definitions ---
 RESOURCE_BASE_DIR = Path("./mcp_resources").resolve()
@@ -255,8 +271,8 @@ async def get_prompt(
         if not query:
             raise ValueError("Missing required argument 'query' for ask-rag")
 
-        if rag_vectorstore is None:
-            logger.error("RAG vector store not loaded. Cannot answer RAG query.")
+        if rag_vectorstore is None or bm25_retriever is None:
+            logger.error("RAG components not loaded. Cannot answer RAG query.")
             return types.GetPromptResult(
                 messages=[
                     types.PromptMessage(
@@ -270,14 +286,26 @@ async def get_prompt(
             )
 
         logger.info(f"Performing RAG search for query: {query}")
-        # Retrieve relevant documents
-        docs = rag_vectorstore.similarity_search(query, k=3) # Retrieve top 3 relevant documents
         
-        context = "\n\n".join([doc.page_content for doc in docs])
-        logger.debug(f"Retrieved context for RAG query:\n{context}")
+        # Semantic search (FAISS)
+        faiss_docs = rag_vectorstore.similarity_search(query, k=5) # Retrieve top 5 relevant documents
+        faiss_context = "\n\n".join([doc.page_content for doc in faiss_docs])
+        logger.debug(f"Retrieved FAISS context:\n{faiss_context}")
+
+        # Keyword search (BM25)
+        tokenized_query = query.split(" ")
+        bm25_scores = bm25_retriever.get_scores(tokenized_query)
+        # Get top 5 BM25 documents based on scores
+        top_bm25_indices = sorted(range(len(bm25_scores)), key=lambda i: bm25_scores[i], reverse=True)[:5]
+        bm25_docs = [all_chunks[i] for i in top_bm25_indices]
+        bm25_context = "\n\n".join(bm25_docs)
+        logger.debug(f"Retrieved BM25 context:\n{bm25_context}")
+
+        # Combine contexts (simple concatenation for now, can be refined)
+        combined_context = f"Semantic Search Results:\n{faiss_context}\n\nKeyword Search Results:\n{bm25_context}"
 
         # Construct the prompt with retrieved context
-        rag_prompt = f"""Based on the following information, answer the question. If the information does not contain the answer, state that you don't know.\n\nContext:\n{context}\n\nQuestion: {query}\nAnswer:"""
+        rag_prompt = f"""Based on the following information, answer the question. If the information does not contain the answer, state that you don't know.\n\nContext:\n{combined_context}\n\nQuestion: {query}\nAnswer:"""
 
         return types.GetPromptResult(
             messages=[

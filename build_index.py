@@ -2,6 +2,9 @@ import os
 import json
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import DirectoryLoader, TextLoader, PyPDFLoader, Docx2txtLoader, UnstructuredPowerPointLoader
+from langchain_core.documents import Document
+import pytesseract
+from PIL import Image
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from loguru import logger
@@ -11,6 +14,18 @@ RESOURCES_DIR = "mcp_resources"
 INDEX_PATH = "faiss_index"
 CHUNKS_PATH = "chunks.json"
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+
+class ImageLoader:
+    def __init__(self, file_path):
+        self.file_path = file_path
+
+    def load(self):
+        try:
+            text = pytesseract.image_to_string(Image.open(self.file_path))
+            return [Document(page_content=text, metadata={"source": self.file_path, "type": "image"})]
+        except Exception as e:
+            logger.error(f"Error processing image {self.file_path}: {e}")
+            return []
 
 @logger.catch
 def build_index():
@@ -62,6 +77,15 @@ def build_index():
         use_multithreading=True,
     )
     documents.extend(pptx_loader.load())
+
+    # Load image files (PNG, JPG, JPEG) using OCR
+    image_files = []
+    for ext in ["png", "jpg", "jpeg"]:
+        image_files.extend(glob.glob(os.path.join(RESOURCES_DIR, f"**/*.{ext}"), recursive=True))
+
+    for img_file in image_files:
+        loader = ImageLoader(img_file)
+        documents.extend(loader.load())
 
     if not documents:
         logger.warning("No documents found to index. Exiting.")
