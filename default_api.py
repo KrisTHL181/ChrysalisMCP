@@ -290,6 +290,21 @@ def save_memory(fact: str) -> Dict:
     except Exception as e:
         return {"error": f"Failed to save memory: {e}"}
 
+def update_global_memory(summary: str) -> Dict:
+    """Updates the global memory with a summary of the knowledge base."""
+    logger.debug(f"Updating global memory with summary: {summary}")
+    try:
+        memory_dir = os.path.expanduser("~/.ChrysalisMCP")
+        os.makedirs(memory_dir, exist_ok=True)
+        global_memory_file = os.path.join(memory_dir, "global_memory.md")
+        
+        with open(global_memory_file, 'w', encoding='utf-8') as f:
+            f.write(summary)
+            
+        return {"output": f"Global memory updated in {global_memory_file}."}
+    except Exception as e:
+        return {"error": f"Failed to update global memory: {e}"}
+
 # Create a default_api object for consistency with how it was used before
 class DefaultApiWrapper:
     def __init__(self):
@@ -304,5 +319,6 @@ class DefaultApiWrapper:
         self.replace = replace
         self.read_many_files = read_many_files
         self.save_memory = save_memory
+        self.update_global_memory = update_global_memory
 
 default_api = DefaultApiWrapper()

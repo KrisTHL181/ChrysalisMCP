@@ -1,2 +1,3 @@
 faiss_index/
+temp/
 chunks.json

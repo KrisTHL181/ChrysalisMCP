@@ -27,9 +27,10 @@ rag_vectorstore = None
 rag_embeddings = None
 bm25_retriever = None
 all_chunks = []
+global_memory_content = ""
 
 async def load_rag_components():
-    global rag_vectorstore, rag_embeddings, bm25_retriever, all_chunks
+    global rag_vectorstore, rag_embeddings, bm25_retriever, all_chunks, global_memory_content
     logger.info("Loading RAG components...")
     try:
         rag_embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
@@ -44,6 +45,15 @@ async def load_rag_components():
         bm25_retriever = BM25Okapi(tokenized_corpus)
         logger.info("BM25 retriever initialized.")
 
+        # Load global memory content
+        global_memory_file = os.path.expanduser("~/.ChrysalisMCP/global_memory.md")
+        if os.path.exists(global_memory_file):
+            with open(global_memory_file, 'r', encoding='utf-8') as f:
+                global_memory_content = f.read()
+            logger.info("Global memory loaded.")
+        else:
+            logger.warning("Global memory file not found. It will be created on first update.")
+
         logger.info("RAG components loaded successfully.")
     except Exception as e:
         logger.error(f"Failed to load RAG components: {e}")
@@ -51,6 +61,7 @@ async def load_rag_components():
         rag_embeddings = None
         bm25_retriever = None
         all_chunks = []
+        global_memory_content = ""
 
 # --- Resource Definitions ---
 RESOURCE_BASE_DIR = Path("./mcp_resources").resolve()
@@ -287,13 +298,17 @@ async def get_prompt(
 
         logger.info(f"Performing RAG search for query: {query}")
         
+        # TODO: Implement LLM-driven clue generation here based on the paper's MemoRAG concept.
+        # For now, we will use the original query for retrieval.
+        clue_query = query
+
         # Semantic search (FAISS)
-        faiss_docs = rag_vectorstore.similarity_search(query, k=5) # Retrieve top 5 relevant documents
+        faiss_docs = rag_vectorstore.similarity_search(clue_query, k=5) # Retrieve top 5 relevant documents
         faiss_context = "\n\n".join([doc.page_content for doc in faiss_docs])
         logger.debug(f"Retrieved FAISS context:\n{faiss_context}")
 
         # Keyword search (BM25)
-        tokenized_query = query.split(" ")
+        tokenized_query = clue_query.split(" ")
         bm25_scores = bm25_retriever.get_scores(tokenized_query)
         # Get top 5 BM25 documents based on scores
         top_bm25_indices = sorted(range(len(bm25_scores)), key=lambda i: bm25_scores[i], reverse=True)[:5]
@@ -305,7 +320,17 @@ async def get_prompt(
         combined_context = f"Semantic Search Results:\n{faiss_context}\n\nKeyword Search Results:\n{bm25_context}"
 
         # Construct the prompt with retrieved context
-        rag_prompt = f"""Based on the following information, answer the question. If the information does not contain the answer, state that you don't know.\n\nContext:\n{combined_context}\n\nQuestion: {query}\nAnswer:"""
+        # Construct the prompt with retrieved context
+        rag_prompt = f"""Based on the following information, answer the question. If the information does not contain the answer, state that you don't know.
+
+Global Memory Summary:
+{global_memory_content}
+
+Context:
+{combined_context}
+
+Question: {query}
+Answer:"""
 
         return types.GetPromptResult(
             messages=[
