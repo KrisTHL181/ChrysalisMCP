@@ -1,7 +1,7 @@
 import os
 import json
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.document_loaders import DirectoryLoader, TextLoader
+from langchain_community.document_loaders import DirectoryLoader, TextLoader, PyPDFLoader, Docx2txtLoader, UnstructuredPowerPointLoader
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from loguru import logger
@@ -18,14 +18,51 @@ def build_index():
     logger.info(f"Starting to build index from documents in: {RESOURCES_DIR}")
 
     # Load documents
-    loader = DirectoryLoader(
+    documents = []
+    
+    # Load .txt files
+    txt_loader = DirectoryLoader(
         RESOURCES_DIR,
-        loader_cls=TextLoader, # Using TextLoader for .txt files
+        loader_cls=TextLoader,
         glob="**/*.txt",
         show_progress=True,
         use_multithreading=True,
     )
-    documents = loader.load()
+    documents.extend(txt_loader.load())
+
+    # Load .pdf files
+    pdf_loader = DirectoryLoader(
+        RESOURCES_DIR,
+        loader_cls=PyPDFLoader,
+        glob="**/*.pdf",
+        show_progress=True,
+        use_multithreading=True,
+    )
+    documents.extend(pdf_loader.load())
+
+    # Load .docx files
+    docx_loader = DirectoryLoader(
+        RESOURCES_DIR,
+        loader_cls=Docx2txtLoader,
+        glob="**/*.docx",
+        show_progress=True,
+        use_multithreading=True,
+    )
+    documents.extend(docx_loader.load())
+
+    # Load .pptx files (requires unstructured and its dependencies)
+    # Note: UnstructuredPowerPointLoader might require additional system dependencies
+    # like libmagic and poppler-utils. For simplicity, we'll use it directly here.
+    # If you encounter errors, you might need to install these system-wide.
+    pptx_loader = DirectoryLoader(
+        RESOURCES_DIR,
+        loader_cls=UnstructuredPowerPointLoader,
+        glob="**/*.pptx",
+        show_progress=True,
+        use_multithreading=True,
+    )
+    documents.extend(pptx_loader.load())
+
     if not documents:
         logger.warning("No documents found to index. Exiting.")
         return

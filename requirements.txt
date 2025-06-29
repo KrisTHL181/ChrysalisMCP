@@ -3,3 +3,6 @@ sentence-transformers
 faiss-cpu
 langchain
 langchain-community
+pypdf
+python-docx
+python-pptx
