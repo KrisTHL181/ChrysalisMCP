@@ -336,9 +336,7 @@ def update_global_memory(summary: str = None) -> Dict:
                 summaries = []
                 for i, text_chunk in enumerate(texts):
                     logger.info(f"Summarizing chunk {i+1}/{len(texts)} for global memory...")
-                    prompt = f"Please summarize the following text:
-
-{text_chunk}"
+                    prompt = f"Please summarize the following text:\n\n{text_chunk}"
                     response = model.generate_content(prompt)
                     summaries.append(response.text)
                 

@@ -746,7 +746,7 @@ def main(port: int, transport: str) -> int:
         starlette_app = Starlette(
             debug=True,
             routes=[
-                Route("/sse", endpoint=sse.handle_sse, methods=["GET"]),
+                Route("/sse", endpoint=sse, methods=["GET"]),
                 Mount("/messages/", app=sse.handle_post_message),
             ],
         )
