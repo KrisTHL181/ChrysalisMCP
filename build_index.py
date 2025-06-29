@@ -9,6 +9,7 @@ from PIL import Image
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from loguru import logger
+import default_api as default_api_module
 
 # --- Configuration ---
 RESOURCES_DIR = "mcp_resources"
@@ -118,6 +119,11 @@ def build_index():
     logger.info(f"Chunk metadata saved to: {CHUNKS_PATH}")
 
     logger.info("Index building complete.")
+
+    # Update global memory after index is built
+    logger.info("Updating global memory...")
+    default_api_module.update_global_memory()
+    logger.info("Global memory update complete.")
 
 if __name__ == "__main__":
     build_index()

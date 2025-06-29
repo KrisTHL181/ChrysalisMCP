@@ -5,6 +5,9 @@ import re
 import glob
 from typing import List, Dict, Optional
 from loguru import logger
+import google.generativeai as genai
+from langchain_community.document_loaders import DirectoryLoader, TextLoader, PyPDFLoader, Docx2txtLoader, UnstructuredPowerPointLoader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 # --- API Key Placeholders ---
 # IMPORTANT: Replace these with your actual API keys
@@ -290,14 +293,58 @@ def save_memory(fact: str) -> Dict:
     except Exception as e:
         return {"error": f"Failed to save memory: {e}"}
 
-def update_global_memory(summary: str) -> Dict:
-    """Updates the global memory with a summary of the knowledge base."""
-    logger.debug(f"Updating global memory with summary: {summary}")
+def update_global_memory(summary: str = None) -> Dict:
+    """Updates the global memory with a summary of the knowledge base, or generates one using LLM."""
+    logger.debug(f"Updating global memory.")
     try:
         memory_dir = os.path.expanduser("~/.ChrysalisMCP")
         os.makedirs(memory_dir, exist_ok=True)
         global_memory_file = os.path.join(memory_dir, "global_memory.md")
-        
+
+        if summary is None:
+            # If no summary is provided, generate one using LLM
+            logger.info("Generating global memory summary using LLM...")
+            
+            # Load all documents from mcp_resources
+            RESOURCES_DIR = os.path.join(os.getcwd(), "mcp_resources")
+            documents = []
+            
+            txt_loader = DirectoryLoader(RESOURCES_DIR, loader_cls=TextLoader, glob="**/*.txt")
+            documents.extend(txt_loader.load())
+            pdf_loader = DirectoryLoader(RESOURCES_DIR, loader_cls=PyPDFLoader, glob="**/*.pdf")
+            documents.extend(pdf_loader.load())
+            docx_loader = DirectoryLoader(RESOURCES_DIR, loader_cls=Docx2txtLoader, glob="**/*.docx")
+            documents.extend(docx_loader.load())
+            pptx_loader = DirectoryLoader(RESOURCES_DIR, loader_cls=UnstructuredPowerPointLoader, glob="**/*.pptx")
+            documents.extend(pptx_loader.load())
+
+            if not documents:
+                logger.warning("No documents found in mcp_resources to summarize for global memory.")
+                summary = "No documents available for global memory."
+            else:
+                # Combine all document content
+                full_content = "\n\n".join([doc.page_content for doc in documents])
+
+                # Use LLM to summarize
+                genai.configure(api_key=os.environ.get("GOOGLE_API_KEY"))
+                model = genai.GenerativeModel('gemini-pro')
+                
+                # Split content into chunks if too long for LLM
+                text_splitter = RecursiveCharacterTextSplitter(chunk_size=10000, chunk_overlap=1000)
+                texts = text_splitter.split_text(full_content)
+
+                summaries = []
+                for i, text_chunk in enumerate(texts):
+                    logger.info(f"Summarizing chunk {i+1}/{len(texts)} for global memory...")
+                    prompt = f"Please summarize the following text:
+
+{text_chunk}"
+                    response = model.generate_content(prompt)
+                    summaries.append(response.text)
+                
+                summary = "\n\n".join(summaries)
+                logger.info("Global memory summary generated.")
+
         with open(global_memory_file, 'w', encoding='utf-8') as f:
             f.write(summary)
             

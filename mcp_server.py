@@ -205,6 +205,22 @@ PROMPTS = {
             )
         ],
     ),
+    "generate-clue": types.Prompt(
+        name="generate-clue",
+        description="Generate a retrieval clue based on a query and global memory.",
+        arguments=[
+            types.PromptArgument(
+                name="query",
+                description="The original user query.",
+                required=True
+            ),
+            types.PromptArgument(
+                name="global_memory",
+                description="Summary of the global knowledge base.",
+                required=False
+            )
+        ],
+    ),
 }
 
 @app.list_prompts()
@@ -279,8 +295,29 @@ async def get_prompt(
 
     if name == "ask-rag":
         query = arguments.get("query", "") if arguments else ""
+        clue_query = arguments.get("clue_query", "") if arguments else "" # Add clue_query argument
+
         if not query:
             raise ValueError("Missing required argument 'query' for ask-rag")
+
+        if not clue_query: # If clue_query is not provided, generate a clue
+            clue_prompt_text = f"""Based on the following original query and global memory summary, generate a more detailed and comprehensive retrieval query (clue) that would help find relevant information. The clue should be a single, concise query.
+
+Original Query: {query}
+Global Memory Summary: {global_memory_content}
+
+Generated Clue:"""
+            return types.GetPromptResult(
+                messages=[
+                    types.PromptMessage(
+                        role="user",
+                        content=types.TextContent(
+                            type="text",
+                            text=clue_prompt_text
+                        )
+                    )
+                ]
+            )
 
         if rag_vectorstore is None or bm25_retriever is None:
             logger.error("RAG components not loaded. Cannot answer RAG query.")
@@ -296,19 +333,15 @@ async def get_prompt(
                 ]
             )
 
-        logger.info(f"Performing RAG search for query: {query}")
+        logger.info(f"Performing RAG search for query: {query} with clue: {clue_query}") # Log clue_query
         
-        # TODO: Implement LLM-driven clue generation here based on the paper's MemoRAG concept.
-        # For now, we will use the original query for retrieval.
-        clue_query = query
-
         # Semantic search (FAISS)
-        faiss_docs = rag_vectorstore.similarity_search(clue_query, k=5) # Retrieve top 5 relevant documents
+        faiss_docs = rag_vectorstore.similarity_search(clue_query, k=5) # Use clue_query for search
         faiss_context = "\n\n".join([doc.page_content for doc in faiss_docs])
         logger.debug(f"Retrieved FAISS context:\n{faiss_context}")
 
         # Keyword search (BM25)
-        tokenized_query = clue_query.split(" ")
+        tokenized_query = clue_query.split(" ") # Use clue_query for BM25
         bm25_scores = bm25_retriever.get_scores(tokenized_query)
         # Get top 5 BM25 documents based on scores
         top_bm25_indices = sorted(range(len(bm25_scores)), key=lambda i: bm25_scores[i], reverse=True)[:5]
@@ -319,7 +352,6 @@ async def get_prompt(
         # Combine contexts (simple concatenation for now, can be refined)
         combined_context = f"Semantic Search Results:\n{faiss_context}\n\nKeyword Search Results:\n{bm25_context}"
 
-        # Construct the prompt with retrieved context
         # Construct the prompt with retrieved context
         rag_prompt = f"""Based on the following information, answer the question. If the information does not contain the answer, state that you don't know.
 
@@ -339,6 +371,29 @@ Answer:"""
                     content=types.TextContent(
                         type="text",
                         text=rag_prompt
+                    )
+                )
+            ]
+        )
+
+    if name == "generate-clue":
+        query = arguments.get("query", "") if arguments else ""
+        global_memory = arguments.get("global_memory", "") if arguments else ""
+        
+        clue_prompt_text = f"""Based on the following original query and global memory summary, generate a more detailed and comprehensive retrieval query (clue) that would help find relevant information. The clue should be a single, concise query.
+
+Original Query: {query}
+Global Memory Summary: {global_memory}
+
+Generated Clue:"""
+
+        return types.GetPromptResult(
+            messages=[
+                types.PromptMessage(
+                    role="user",
+                    content=types.TextContent(
+                        type="text",
+                        text=clue_prompt_text
                     )
                 )
             ]
