@@ -47,20 +47,9 @@ If you plan to use image files (`.png`, `.jpg`, `.jpeg`) in your knowledge base,
 
 ### 4. Configure API Keys
 
-ChrysalisMCP uses Google's Generative AI models for global memory summarization and potentially for clue generation. Set your Google API Key as an environment variable:
+ChrysalisMCP uses local summarization models for global memory summarization. By default, it uses `sshleifer/distilbart-cnn-12-6`. You can customize the model by passing `summary_model_name` argument to `build_index.py` (e.g., `python build_index.py --summary-model "facebook/bart-large-cnn"`).
 
-```bash
-# For Linux/macOS
-export GOOGLE_API_KEY="YOUR_GOOGLE_API_KEY"
-
-# For Windows (Command Prompt)
-set GOOGLE_API_KEY="YOUR_GOOGLE_API_KEY"
-
-# For Windows (PowerShell)
-$env:GOOGLE_API_KEY="YOUR_GOOGLE_API_KEY"
-```
-
-If you plan to use Google Search tool, you also need to configure `GOOGLE_SEARCH_API_KEY` and `GOOGLE_SEARCH_CX` in `default_api.py`.
+If you plan to use Google Search tool, you need to configure `GOOGLE_SEARCH_API_KEY` and `GOOGLE_SEARCH_CX` in `default_api.py`.
 
 ### 5. Prepare Knowledge Base
 

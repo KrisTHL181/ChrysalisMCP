@@ -47,20 +47,9 @@ pip install -r requirements.txt
 
 ### 4. 配置 API 密钥
 
-ChrysalisMCP 使用 Google 的生成式 AI 模型进行全局记忆摘要，并可能用于线索生成。请将您的 Google API 密钥设置为环境变量：
+ChrysalisMCP 使用本地摘要模型进行全局记忆摘要。默认情况下，它使用 `sshleifer/distilbart-cnn-12-6`。您可以通过向 `build_index.py` 传递 `summary_model_name` 参数来自定义模型（例如，`python build_index.py --summary-model "facebook/bart-large-cnn"`）。
 
-```bash
-# 适用于 Linux/macOS
-export GOOGLE_API_KEY="您的 Google API 密钥"
-
-# 适用于 Windows (命令提示符)
-set GOOGLE_API_KEY="您的 Google API 密钥"
-
-# 适用于 Windows (PowerShell)
-$env:GOOGLE_API_KEY="您的 Google API 密钥"
-```
-
-如果您计划使用 Google 搜索工具，您还需要在 `default_api.py` 中配置 `GOOGLE_SEARCH_API_KEY` 和 `GOOGLE_SEARCH_CX`。
+如果您计划使用 Google 搜索工具，您需要在 `default_api.py` 中配置 `GOOGLE_SEARCH_API_KEY` 和 `GOOGLE_SEARCH_CX`。
 
 ### 5. 准备知识库
 
