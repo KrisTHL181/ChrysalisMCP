@@ -13,6 +13,28 @@ import os
 from pathlib import Path
 import mimetypes
 from loguru import logger
+from langchain_community.vectorstores import FAISS
+from langchain_community.embeddings import HuggingFaceEmbeddings
+
+# RAG Configuration
+FAISS_INDEX_PATH = "faiss_index"
+EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+
+# Global RAG components
+rag_vectorstore = None
+rag_embeddings = None
+
+async def load_rag_components():
+    global rag_vectorstore, rag_embeddings
+    logger.info("Loading RAG components...")
+    try:
+        rag_embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
+        rag_vectorstore = FAISS.load_local(FAISS_INDEX_PATH, rag_embeddings, allow_dangerous_deserialization=True)
+        logger.info("RAG components loaded successfully.")
+    except Exception as e:
+        logger.error(f"Failed to load RAG components: {e}")
+        rag_vectorstore = None
+        rag_embeddings = None
 
 # --- Resource Definitions ---
 RESOURCE_BASE_DIR = Path("./mcp_resources").resolve()
@@ -145,6 +167,17 @@ PROMPTS = {
             )
         ],
     ),
+    "ask-rag": types.Prompt(
+        name="ask-rag",
+        description="Ask a question that can be answered by retrieving information from the local knowledge base.",
+        arguments=[
+            types.PromptArgument(
+                name="query",
+                description="The question to ask.",
+                required=True
+            )
+        ],
+    ),
 }
 
 @app.list_prompts()
@@ -212,6 +245,47 @@ async def get_prompt(
                     content=types.TextContent(
                         type="text",
                         text=f"Generate {language} code for the following description:\n\n{description}"
+                    )
+                )
+            ]
+        )
+
+    if name == "ask-rag":
+        query = arguments.get("query", "") if arguments else ""
+        if not query:
+            raise ValueError("Missing required argument 'query' for ask-rag")
+
+        if rag_vectorstore is None:
+            logger.error("RAG vector store not loaded. Cannot answer RAG query.")
+            return types.GetPromptResult(
+                messages=[
+                    types.PromptMessage(
+                        role="user",
+                        content=types.TextContent(
+                            type="text",
+                            text="RAG knowledge base is not available. Please inform the developer."
+                        )
+                    )
+                ]
+            )
+
+        logger.info(f"Performing RAG search for query: {query}")
+        # Retrieve relevant documents
+        docs = rag_vectorstore.similarity_search(query, k=3) # Retrieve top 3 relevant documents
+        
+        context = "\n\n".join([doc.page_content for doc in docs])
+        logger.debug(f"Retrieved context for RAG query:\n{context}")
+
+        # Construct the prompt with retrieved context
+        rag_prompt = f"""Based on the following information, answer the question. If the information does not contain the answer, state that you don't know.\n\nContext:\n{context}\n\nQuestion: {query}\nAnswer:"""
+
+        return types.GetPromptResult(
+            messages=[
+                types.PromptMessage(
+                    role="user",
+                    content=types.TextContent(
+                        type="text",
+                        text=rag_prompt
                     )
                 )
             ]
@@ -569,12 +643,17 @@ def main(port: int, transport: str) -> int:
             ],
         )
 
+        # Load RAG components before starting the server
+        anyio.run(load_rag_components)
+
         uvicorn.run(starlette_app, host="0.0.0.0", port=port)
     else:
         # This part is for stdio transport, not typically used for web servers
         from mcp.server.stdio import stdio_server
 
         async def arun():
+            # Load RAG components before starting the server
+            await load_rag_components()
             async with stdio_server() as streams:
                 await app.run(
                     streams[0], streams[1], app.create_initialization_options()
