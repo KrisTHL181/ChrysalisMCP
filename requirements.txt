@@ -16,3 +16,4 @@ torch==2.3.1
 transformers==4.53.0
 rank_bm25
 pytesseract
+langchain-huggingface

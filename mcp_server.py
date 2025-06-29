@@ -14,7 +14,7 @@ from pathlib import Path
 import mimetypes
 from loguru import logger
 from langchain_community.vectorstores import FAISS
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface.embeddings import HuggingFaceEmbeddings
 from rank_bm25 import BM25Okapi
 
 # RAG Configuration

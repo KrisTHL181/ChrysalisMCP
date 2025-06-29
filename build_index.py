@@ -7,7 +7,7 @@ from langchain_core.documents import Document
 import pytesseract
 from PIL import Image
 from langchain_community.vectorstores import FAISS
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface.embeddings import HuggingFaceEmbeddings
 from loguru import logger
 import default_api as default_api_module
 
