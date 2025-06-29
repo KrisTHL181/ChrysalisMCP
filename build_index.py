@@ -122,7 +122,10 @@ def build_index():
 
     # Update global memory after index is built
     logger.info("Updating global memory...")
-    default_api_module.update_global_memory()
+    # User can customize the summary model by passing it as an argument to build_index.py
+    # For example: python build_index.py --summary-model "facebook/bart-large-cnn"
+    # For now, we use a default model.
+    default_api_module.update_global_memory(summary_model_name="sshleifer/distilbart-cnn-12-6")
     logger.info("Global memory update complete.")
 
 if __name__ == "__main__":

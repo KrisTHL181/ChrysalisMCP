@@ -1,3 +1,5 @@
 faiss_index/
 temp/
+__pycache__/
+.ruff_cache/
 chunks.json

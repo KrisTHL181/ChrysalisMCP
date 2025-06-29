@@ -5,9 +5,9 @@ import re
 import glob
 from typing import List, Dict, Optional
 from loguru import logger
-import google.generativeai as genai
 from langchain_community.document_loaders import DirectoryLoader, TextLoader, PyPDFLoader, Docx2txtLoader, UnstructuredPowerPointLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from transformers import pipeline
 
 # --- API Key Placeholders ---
 # IMPORTANT: Replace these with your actual API keys
@@ -293,8 +293,8 @@ def save_memory(fact: str) -> Dict:
     except Exception as e:
         return {"error": f"Failed to save memory: {e}"}
 
-def update_global_memory(summary: str = None) -> Dict:
-    """Updates the global memory with a summary of the knowledge base, or generates one using LLM."""
+def update_global_memory(summary_model_name: str = "sshleifer/distilbart-cnn-12-6", summary: str = None) -> Dict:
+    """Updates the global memory with a summary of the knowledge base, or generates one using a local LLM."""
     logger.debug(f"Updating global memory.")
     try:
         memory_dir = os.path.expanduser("~/.ChrysalisMCP")
@@ -302,8 +302,8 @@ def update_global_memory(summary: str = None) -> Dict:
         global_memory_file = os.path.join(memory_dir, "global_memory.md")
 
         if summary is None:
-            # If no summary is provided, generate one using LLM
-            logger.info("Generating global memory summary using LLM...")
+            # If no summary is provided, generate one using local LLM
+            logger.info(f"Generating global memory summary using local LLM: {summary_model_name}...")
             
             # Load all documents from mcp_resources
             RESOURCES_DIR = os.path.join(os.getcwd(), "mcp_resources")
@@ -325,9 +325,8 @@ def update_global_memory(summary: str = None) -> Dict:
                 # Combine all document content
                 full_content = "\n\n".join([doc.page_content for doc in documents])
 
-                # Use LLM to summarize
-                genai.configure(api_key=os.environ.get("GOOGLE_API_KEY"))
-                model = genai.GenerativeModel('gemini-pro')
+                # Use local LLM to summarize
+                summarizer = pipeline("summarization", model=summary_model_name)
                 
                 # Split content into chunks if too long for LLM
                 text_splitter = RecursiveCharacterTextSplitter(chunk_size=10000, chunk_overlap=1000)
@@ -336,9 +335,9 @@ def update_global_memory(summary: str = None) -> Dict:
                 summaries = []
                 for i, text_chunk in enumerate(texts):
                     logger.info(f"Summarizing chunk {i+1}/{len(texts)} for global memory...")
-                    prompt = f"Please summarize the following text:\n\n{text_chunk}"
-                    response = model.generate_content(prompt)
-                    summaries.append(response.text)
+                    # The summarizer pipeline expects a list of strings
+                    summary_result = summarizer(text_chunk, max_length=150, min_length=30, do_sample=False)
+                    summaries.append(summary_result[0]['summary_text'])
                 
                 summary = "\n\n".join(summaries)
                 logger.info("Global memory summary generated.")
