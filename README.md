@@ -4,19 +4,19 @@ ChrysalisMCP (Model Community Platform) is a powerful command-line interface (CL
 
 ## Features
 
--   **Hybrid Retrieval**: Combines semantic search (FAISS) and keyword search (BM25) for comprehensive document retrieval.
--   **Multi-modal RAG**: Extracts text from various document types including:
-    -   Plain Text (`.txt`)
-    -   PDF (`.pdf`)
-    -   Microsoft Word (`.docx`)
-    -   Microsoft PowerPoint (`.pptx`)
-    -   Images (`.png`, `.jpg`, `.jpeg`) via OCR (requires Tesseract OCR engine).
--   **LLM-Driven Clue Generation**: Enhances retrieval queries by generating more detailed "clues" using an LLM, based on the original query and global memory.
--   **Global Memory**: Maintains a persistent, summarized overview of the entire knowledge base, automatically updated during indexing.
--   **Persistent User Memory**: Saves specific user-related facts to long-term memory.
--   **Extensible Prompt System**: Easily define and extend various LLM prompts (e.g., code generation, summarization, explanation).
--   **Tool Integration**: Seamlessly integrates with external tools like Google Search, web fetching, and shell commands.
--   **Modular Design**: Built with a clear separation of concerns for easy maintenance and extension.
+- **Hybrid Retrieval**: Combines semantic search (FAISS) and keyword search (BM25) for comprehensive document retrieval.
+- **Multi-modal RAG**: Extracts text from various document types including:
+  - Plain Text (`.txt`)
+  - PDF (`.pdf`)
+  - Microsoft Word (`.docx`)
+  - Microsoft PowerPoint (`.pptx`)
+  - Images (`.png`, `.jpg`, `.jpeg`) via OCR (requires Tesseract OCR engine).
+- **LLM-Driven Clue Generation**: Enhances retrieval queries by generating more detailed "clues" using an LLM, based on the original query and global memory.
+- **Global Memory**: Maintains a persistent, summarized overview of the entire knowledge base, automatically updated during indexing.
+- **Persistent User Memory**: Saves specific user-related facts to long-term memory.
+- **Extensible Prompt System**: Easily define and extend various LLM prompts (e.g., code generation, summarization, explanation).
+- **Tool Integration**: Seamlessly integrates with external tools like Google Search, web fetching, and shell commands.
+- **Modular Design**: Built with a clear separation of concerns for easy maintenance and extension.
 
 ## Setup
 
@@ -25,8 +25,8 @@ Follow these steps to set up and run ChrysalisMCP locally.
 ### 1. Clone the Repository
 
 ```bash
-git clone <your-github-repo-url>
-cd MCP
+git clone https://github.com/KrisTHL181/ChrysalisMCP.git
+cd ChrysalisMCP
 ```
 
 ### 2. Install Dependencies
@@ -41,9 +41,9 @@ pip install -r requirements.txt
 
 If you plan to use image files (`.png`, `.jpg`, `.jpeg`) in your knowledge base, you **must** install the Tesseract OCR engine on your system. Follow the installation instructions for your operating system:
 
--   **Windows**: [Tesseract-OCR for Windows](https://tesseract-ocr.github.io/tessdoc/Installation.html#windows)
--   **macOS**: `brew install tesseract`
--   **Linux**: `sudo apt-get install tesseract-ocr`
+- **Windows**: [Tesseract-OCR for Windows](https://tesseract-ocr.github.io/tessdoc/Installation.html#windows)
+- **macOS**: `brew install tesseract`
+- **Linux**: `sudo apt-get install tesseract-ocr`
 
 ### 4. Configure API Keys
 

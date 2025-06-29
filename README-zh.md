@@ -4,19 +4,19 @@ ChrysalisMCP (模型社区平台) 是一个强大的命令行界面 (CLI) 应用
 
 ## 功能
 
--   **混合检索**: 结合语义搜索 (FAISS) 和关键词搜索 (BM25)，实现全面的文档检索。
--   **多模态 RAG**: 从各种文档类型中提取文本，包括：
-    -   纯文本 (`.txt`)
-    -   PDF (`.pdf`)
-    -   Microsoft Word (`.docx`)
-    -   Microsoft PowerPoint (`.pptx`)
-    -   图像 (`.png`, `.jpg`, `.jpeg`) 通过 OCR (需要 Tesseract OCR 引擎)。
--   **LLM 驱动的线索生成**: 根据原始查询和全局记忆，使用 LLM 生成更详细的“线索”，从而增强检索查询。
--   **全局记忆**: 维护整个知识库的持久化、摘要性概览，在索引构建期间自动更新。
--   **持久化用户记忆**: 将特定的用户相关事实保存到长期记忆中。
--   **可扩展的提示系统**: 轻松定义和扩展各种 LLM 提示（例如，代码生成、摘要、解释）。
--   **工具集成**: 无缝集成 Google 搜索、网页抓取和 shell 命令等外部工具。
--   **模块化设计**: 采用清晰的职责分离设计，便于维护和扩展。
+- **混合检索**: 结合语义搜索 (FAISS) 和关键词搜索 (BM25)，实现全面的文档检索。
+- **多模态 RAG**: 从各种文档类型中提取文本，包括：
+  - 纯文本 (`.txt`)
+  - PDF (`.pdf`)
+  - Microsoft Word (`.docx`)
+  - Microsoft PowerPoint (`.pptx`)
+  - 图像 (`.png`, `.jpg`, `.jpeg`) 通过 OCR (需要 Tesseract OCR 引擎)。
+- **LLM 驱动的线索生成**: 根据原始查询和全局记忆，使用 LLM 生成更详细的“线索”，从而增强检索查询。
+- **全局记忆**: 维护整个知识库的持久化、摘要性概览，在索引构建期间自动更新。
+- **持久化用户记忆**: 将特定的用户相关事实保存到长期记忆中。
+- **可扩展的提示系统**: 轻松定义和扩展各种 LLM 提示（例如，代码生成、摘要、解释）。
+- **工具集成**: 无缝集成 Google 搜索、网页抓取和 shell 命令等外部工具。
+- **模块化设计**: 采用清晰的职责分离设计，便于维护和扩展。
 
 ## 设置
 
@@ -25,8 +25,8 @@ ChrysalisMCP (模型社区平台) 是一个强大的命令行界面 (CLI) 应用
 ### 1. 克隆仓库
 
 ```bash
-git clone <您的 GitHub 仓库 URL>
-cd MCP
+git clone https://github.com/KrisTHL181/ChrysalisMCP.git
+cd ChrysalisMCP
 ```
 
 ### 2. 安装依赖
@@ -41,9 +41,9 @@ pip install -r requirements.txt
 
 如果您计划在知识库中使用图像文件 (`.png`, `.jpg`, `.jpeg`)，则**必须**在您的系统上安装 Tesseract OCR 引擎。请按照您操作系统的安装说明进行操作：
 
--   **Windows**: [Windows 版 Tesseract-OCR](https://tesseract-ocr.github.io/tessdoc/Installation.html#windows)
--   **macOS**: `brew install tesseract`
--   **Linux**: `sudo apt-get install tesseract-ocr`
+- **Windows**: [Windows 版 Tesseract-OCR](https://tesseract-ocr.github.io/tessdoc/Installation.html#windows)
+- **macOS**: `brew install tesseract`
+- **Linux**: `sudo apt-get install tesseract-ocr`
 
 ### 4. 配置 API 密钥
 
