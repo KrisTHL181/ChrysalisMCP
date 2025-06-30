@@ -10,12 +10,15 @@ from langchain_community.vectorstores import FAISS
 from langchain_huggingface.embeddings import HuggingFaceEmbeddings
 from loguru import logger
 import default_api as default_api_module
+import whisper
+from moviepy.editor import VideoFileClip
 
 # --- Configuration ---
 RESOURCES_DIR = "mcp_resources"
 INDEX_PATH = "faiss_index"
 CHUNKS_PATH = "chunks.json"
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+WHISPER_MODEL = "base"
 
 class ImageLoader:
     def __init__(self, file_path):
@@ -27,6 +30,31 @@ class ImageLoader:
             return [Document(page_content=text, metadata={"source": self.file_path, "type": "image"})]
         except Exception as e:
             logger.error(f"Error processing image {self.file_path}: {e}")
+            return []
+
+class AudioVideoLoader:
+    def __init__(self, file_path):
+        self.file_path = file_path
+        self.model = whisper.load_model(WHISPER_MODEL)
+
+    def load(self):
+        try:
+            logger.info(f"Processing {self.file_path} with Whisper...")
+            if self.file_path.endswith(('.mp4', '.avi', '.mov')):
+                # It's a video file, extract audio first
+                video = VideoFileClip(self.file_path)
+                audio_path = "temp_audio.wav"
+                video.audio.write_audiofile(audio_path)
+                result = self.model.transcribe(audio_path)
+                os.remove(audio_path) # Clean up temporary audio file
+            else:
+                # It's an audio file
+                result = self.model.transcribe(self.file_path)
+            
+            text = result["text"]
+            return [Document(page_content=text, metadata={"source": self.file_path, "type": "audio/video"})]
+        except Exception as e:
+            logger.error(f"Error processing audio/video file {self.file_path}: {e}")
             return []
 
 @logger.catch
@@ -67,10 +95,7 @@ def build_index():
     )
     documents.extend(docx_loader.load())
 
-    # Load .pptx files (requires unstructured and its dependencies)
-    # Note: UnstructuredPowerPointLoader might require additional system dependencies
-    # like libmagic and poppler-utils. For simplicity, we'll use it directly here.
-    # If you encounter errors, you might need to install these system-wide.
+    # Load .pptx files
     pptx_loader = DirectoryLoader(
         RESOURCES_DIR,
         loader_cls=UnstructuredPowerPointLoader,
@@ -80,13 +105,22 @@ def build_index():
     )
     documents.extend(pptx_loader.load())
 
-    # Load image files (PNG, JPG, JPEG) using OCR
+    # Load image files
     image_files = []
     for ext in ["png", "jpg", "jpeg"]:
         image_files.extend(glob.glob(os.path.join(RESOURCES_DIR, f"**/*.{ext}"), recursive=True))
 
     for img_file in image_files:
         loader = ImageLoader(img_file)
+        documents.extend(loader.load())
+
+    # Load audio and video files
+    media_files = []
+    for ext in ["mp3", "wav", "mp4", "avi", "mov"]:
+        media_files.extend(glob.glob(os.path.join(RESOURCES_DIR, f"**/*.{ext}"), recursive=True))
+
+    for media_file in media_files:
+        loader = AudioVideoLoader(media_file)
         documents.extend(loader.load())
 
     if not documents:
@@ -122,9 +156,6 @@ def build_index():
 
     # Update global memory after index is built
     logger.info("Updating global memory...")
-    # User can customize the summary model by passing it as an argument to build_index.py
-    # For example: python build_index.py --summary-model "facebook/bart-large-cnn"
-    # For now, we use a default model.
     default_api_module.update_global_memory(summary_model_name="sshleifer/distilbart-cnn-12-6")
     logger.info("Global memory update complete.")
 

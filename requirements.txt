@@ -17,3 +17,10 @@ transformers==4.53.0
 rank_bm25
 pytesseract
 langchain-huggingface
+
+# Image processing
+Pillow
+
+# Audio/Video processing
+openai-whisper
+moviepy
