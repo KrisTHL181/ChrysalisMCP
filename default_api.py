@@ -1,8 +1,11 @@
 import os
+import datetime
 import subprocess
 import requests
 import re
 import glob
+import base64
+import mimetypes
 from typing import List, Dict, Optional
 from loguru import logger
 from langchain_community.document_loaders import DirectoryLoader, TextLoader, PyPDFLoader, Docx2txtLoader, UnstructuredPowerPointLoader
@@ -17,13 +20,13 @@ GOOGLE_SEARCH_CX = "YOUR_GOOGLE_SEARCH_CX" # Custom Search Engine ID
 # --- Tool Implementations ---
 
 def google_web_search(query: str) -> Dict:
-    """Performs a web search using Google Search (simulated or via API)."""
+    """Performs a web search using Google Search via."""
     logger.debug(f"Performing Google Web Search for: {query}")
     if GOOGLE_SEARCH_API_KEY == "YOUR_GOOGLE_SEARCH_API_KEY":
         logger.warning("Google Search API Key not configured!")
         return {
             "search_results": [
-                {"title": "ALERT", "link": "MCP Server", "snippet": "Google Search API not configured. Please inform the developer to configure it."},
+                {"title": "ALERT", "link": "MCP Server", "snippet": "Google Search API is not configured. Please let the user inform the developer to configure it!"},
             ]
         }
     
@@ -96,8 +99,6 @@ def run_shell_command(command: str, description: Optional[str] = None, directory
 
 def read_file(absolute_path: str, limit: Optional[float] = None, offset: Optional[float] = None) -> Dict:
     """Reads and returns the content of a specified file, handling text, images, and PDFs."""
-    import base64
-    import mimetypes
 
     logger.debug(f"Reading file: {absolute_path}")
     try:
@@ -275,7 +276,6 @@ def read_many_files(paths: List[str], exclude: Optional[List[str]] = None, inclu
 
 def save_memory(fact: str) -> Dict:
     """Saves a specific piece of information or fact to your long-term memory."""
-    import datetime
     logger.debug(f"Saving memory: {fact}")
     try:
         # Use a file in the user's home directory to store memories
