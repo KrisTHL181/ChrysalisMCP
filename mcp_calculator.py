@@ -4,34 +4,19 @@ import json
 from loguru import logger
 from operator import add, sub, mul, truediv, pow, mod
 
-def average(numbers: list[float]) -> float:
-    """
-    Calculate the average of a list of numbers.
-    Args:
-        numbers (list[float]): A list of numbers.
-    Returns:
-        float: The average of the numbers.
-    """
-    if not numbers:
-        raise ValueError("The list of numbers cannot be empty.")
-    return sum(numbers) / len(numbers)
-
-
 # Allowed mathematical functions and constants
 _allowed_names = {
     "__builtins__": None, # Disable builtins
     "abs": abs,
     "round": round,
-    "min": min,
-    "max": max,
-    "sum": sum,
-    "len": len, # Safe for basic list/tuple operations
+    # "min": min,
+    # "max": max,
+    # "sum": sum,
+    # "len": len, # Safe for basic list/tuple operations
     "add": add,
     "sub": sub,
     "mul": mul,
     "div": truediv,
-    "pow": pow,
-    "average": average,
     "mod": mod,
     "math": {
         "sqrt": math.sqrt,
