@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, List, Dict, Callable, Awaitable
 import anyio
 import click
 import mcp.types as types
@@ -16,6 +16,7 @@ from loguru import logger
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface.embeddings import HuggingFaceEmbeddings
 from rank_bm25 import BM25Okapi
+import re
 
 # RAG Configuration
 FAISS_INDEX_PATH = "faiss_index"
@@ -71,65 +72,90 @@ ALLOW_ABSOLUTE_PATHS = False # Will be set by CLI option
 
 # Import the default_api which provides access to the CLI tools
 import default_api as default_api_module
+import mcp_calculator
 
-# Helper function to generate JSON Schema from function signature
-def get_json_schema_for_function(func):
-    signature = inspect.signature(func)
-    properties = {}
-    required = []
+# --- Tool Decorator and Registration ---
+_tools: Dict[str, types.Tool] = {}
+_tool_implementations: Dict[str, Callable[..., Awaitable[str]]] = {}
 
-    type_mapping = {
-        str: "string",
-        int: "number",
-        float: "number",
-        bool: "boolean",
-        dict: "object",
-        list: "array",
-        None: "null"
-    }
+def tool(name: str, title: str):
+    """Decorator to register a function as a tool."""
+    def decorator(func: Callable[..., Awaitable[str]]):
+        # Extract schema from signature and docstring
+        signature = inspect.signature(func)
+        docstring = inspect.getdoc(func)
+        
+        # Parse the docstring to get parameter descriptions
+        param_descriptions = {}
+        if docstring:
+            arg_section = re.search(r"Args:\n((.|\n)*)", docstring)
+            if arg_section:
+                arg_lines = arg_section.group(1).strip().split('\n')
+                for line in arg_lines:
+                    match = re.match(r"\s*(\w+)\s*:\s*(.*)", line)
+                    if match:
+                        param_name, param_desc = match.groups()
+                        param_descriptions[param_name.strip()] = param_desc.strip()
 
-    for name, param in signature.parameters.items():
-        if name == 'self':
-            continue
+        properties = {}
+        required = []
+        type_mapping = {
+            str: "string", int: "number", float: "number",
+            bool: "boolean", dict: "object", list: "array", None: "null"
+        }
 
-        param_type = "string"  # Default to string
-        is_optional = False
-        items_type = "string" # Default for array items
+        for param_name, param in signature.parameters.items():
+            if param_name in ('self', 'name', 'arguments'):
+                continue
 
-        if hasattr(param.annotation, '__origin__'):
-            if param.annotation.__origin__ is Optional:
-                is_optional = True
-                inner_type = param.annotation.__args__[0]
-                if hasattr(inner_type, '__origin__') and inner_type.__origin__ is list:
+            param_type = "string"
+            is_optional = False
+            items_type = "string"
+
+            if hasattr(param.annotation, '__origin__'):
+                if param.annotation.__origin__ is Optional:
+                    is_optional = True
+                    inner_type = param.annotation.__args__[0]
+                    if hasattr(inner_type, '__origin__') and inner_type.__origin__ is list:
+                        param_type = "array"
+                        if inner_type.__args__:
+                            items_type = type_mapping.get(inner_type.__args__[0], "string")
+                    else:
+                        param_type = type_mapping.get(inner_type, "string")
+                elif param.annotation.__origin__ is list:
                     param_type = "array"
-                    if inner_type.__args__:
-                        items_type = type_mapping.get(inner_type.__args__[0], "string")
+                    if param.annotation.__args__:
+                        items_type = type_mapping.get(param.annotation.__args__[0], "string")
                 else:
-                    param_type = type_mapping.get(inner_type, "string")
-            elif param.annotation.__origin__ is list:
-                param_type = "array"
-                if param.annotation.__args__:
-                    items_type = type_mapping.get(param.annotation.__args__[0], "string")
-            else:
+                    param_type = type_mapping.get(param.annotation, "string")
+            elif param.annotation is not inspect.Parameter.empty:
                 param_type = type_mapping.get(param.annotation, "string")
-        elif param.annotation is not inspect.Parameter.empty:
-            param_type = type_mapping.get(param.annotation, "string")
-        elif param.default is not inspect.Parameter.empty:
-            param_type = type_mapping.get(type(param.default), "string")
+            elif param.default is not inspect.Parameter.empty:
+                param_type = type_mapping.get(type(param.default), "string")
 
-        if param_type == "array":
-            properties[name] = {"type": "array", "items": {"type": items_type}}
-        else:
-            properties[name] = {"type": param_type, "description": f"Parameter {name}"}
+            description = param_descriptions.get(param_name, f"Parameter {param_name}")
+            if param_type == "array":
+                properties[param_name] = {"type": "array", "items": {"type": items_type}, "description": description}
+            else:
+                properties[param_name] = {"type": param_type, "description": description}
 
-        if param.default is inspect.Parameter.empty and not is_optional:
-            required.append(name)
+            if param.default is inspect.Parameter.empty and not is_optional:
+                required.append(param_name)
 
-    return {
-        "type": "object",
-        "properties": properties,
-        "required": required
-    }
+        # Extract tool description from the first line of the docstring
+        description = docstring.split('\n')[0] if docstring else "No description available."
+
+        input_schema = {"type": "object", "properties": properties, "required": required}
+        
+        _tools[name] = types.Tool(
+            name=name,
+            title=title,
+            description=description,
+            inputSchema=input_schema
+        )
+        _tool_implementations[name] = func
+        return func
+    return decorator
 
 app = Server("mcp-cli-tools-server")
 
@@ -301,12 +327,7 @@ async def get_prompt(
             raise ValueError("Missing required argument 'query' for ask-rag")
 
         if not clue_query: # If clue_query is not provided, generate a clue
-            clue_prompt_text = f"""Based on the following original query and global memory summary, generate a more detailed and comprehensive retrieval query (clue) that would help find relevant information. The clue should be a single, concise query.
-
-Original Query: {query}
-Global Memory Summary: {global_memory_content}
-
-Generated Clue:"""
+            clue_prompt_text = f"""Based on the following original query and global memory summary, generate a more detailed and comprehensive retrieval query (clue) that would help find relevant information. The clue should be a single, concise query.\n\nOriginal Query: {query}\nGlobal Memory Summary: {global_memory_content}\n\nGenerated Clue:"""
             return types.GetPromptResult(
                 messages=[
                     types.PromptMessage(
@@ -353,16 +374,7 @@ Generated Clue:"""
         combined_context = f"Semantic Search Results:\n{faiss_context}\n\nKeyword Search Results:\n{bm25_context}"
 
         # Construct the prompt with retrieved context
-        rag_prompt = f"""Based on the following information, answer the question. If the information does not contain the answer, state that you don't know.
-
-Global Memory Summary:
-{global_memory_content}
-
-Context:
-{combined_context}
-
-Question: {query}
-Answer:"""
+        rag_prompt = f"""Based on the following information, answer the question. If the information does not contain the answer, state that you don't know.\n\nGlobal Memory Summary:\n{global_memory_content}\n\nContext:\n{combined_context}\n\nQuestion: {query}\nAnswer:"""
 
         return types.GetPromptResult(
             messages=[
@@ -380,12 +392,7 @@ Answer:"""
         query = arguments.get("query", "") if arguments else ""
         global_memory = arguments.get("global_memory", "") if arguments else ""
         
-        clue_prompt_text = f"""Based on the following original query and global memory summary, generate a more detailed and comprehensive retrieval query (clue) that would help find relevant information. The clue should be a single, concise query.
-
-Original Query: {query}
-Global Memory Summary: {global_memory}
-
-Generated Clue:"""
+        clue_prompt_text = f"""Based on the following original query and global memory summary, generate a more detailed and comprehensive retrieval query (clue) that would help find relevant information. The clue should be a single, concise query.\n\nOriginal Query: {query}\nGlobal Memory Summary: {global_memory}\n\nGenerated Clue:"""
 
         return types.GetPromptResult(
             messages=[
@@ -476,258 +483,194 @@ async def read_resource(uri: str) -> str:
         raise ValueError(f"Failed to read resource {uri}: {result["error"]}")
     return result["output"]
 
-# --- Tool Implementations (wrapping default_api_module functions) ---
-
-import mcp_calculator
+# --- Tool Implementations ---
 
 @app.call_tool()
-async def calculate(name: str, arguments: dict) -> str:
-    if name != "calculate":
+async def call_tool_handler(name: str, arguments: dict) -> str:
+    if name not in _tool_implementations:
         raise ValueError(f"Unknown tool: {name}")
-    expression = arguments.get("expression")
-    if not expression:
-        raise ValueError("Missing required argument 'expression' for calculate")
+    
+    # Special path validation logic
+    if name in ["read_file", "write_file", "list_directory", "search_file_content", "glob", "replace", "read_many_files"]:
+        path_arg_names = ["absolute_path", "file_path", "path", "paths"]
+        for arg_name in path_arg_names:
+            if arg_name in arguments:
+                is_write = name in ["write_file", "replace"]
+                if isinstance(arguments[arg_name], list):
+                    validated_paths = [str(validate_path_for_mcp_tool(p, is_write)) for p in arguments[arg_name]]
+                    arguments[arg_name] = validated_paths
+                else:
+                    validated_path = validate_path_for_mcp_tool(arguments[arg_name], is_write)
+                    arguments[arg_name] = str(validated_path)
+
+    # Call the actual tool implementation
+    implementation = _tool_implementations[name]
+    result = await implementation(**arguments)
+    return result
+
+@tool(name="calculate", title="Calculator")
+async def calculate(expression: str) -> str:
+    """
+    Evaluates a mathematical expression.
+    Args:
+        expression: The mathematical expression to evaluate.
+    """
     try:
         result = mcp_calculator.calculate(expression)
         return json.dumps({"result": result})
     except Exception as e:
         return json.dumps({"error": str(e)})
 
-@app.call_tool()
-async def google_search(name: str, arguments: dict) -> str:
-    if name != "google_search":
-        raise ValueError(f"Unknown tool: {name}")
-    query = arguments.get("query")
-    if not query:
-        raise ValueError("Missing required argument 'query' for google_search")
+@tool(name="google_search", title="Google Search")
+async def google_search(query: str) -> str:
+    """
+    Performs a web search using Google Search.
+    Args:
+        query: The search query to find information on the web.
+    """
     result = default_api_module.google_web_search(query=query)
     return json.dumps(result)
 
-@app.call_tool()
-async def web_fetch(name: str, arguments: dict) -> str:
-    if name != "web_fetch":
-        raise ValueError(f"Unknown tool: {name}")
-    prompt = arguments.get("prompt")
-    if not prompt:
-        raise ValueError("Missing required argument 'prompt' for web_fetch")
+@tool(name="web_fetch", title="Web Fetch")
+async def web_fetch(prompt: str) -> str:
+    """
+    Fetches content from URLs specified in the prompt.
+    Args:
+        prompt: A comprehensive prompt that includes the URL(s) to fetch.
+    """
     result = default_api_module.web_fetch(prompt=prompt)
     return json.dumps(result)
 
-@app.call_tool()
-async def shell(name: str, arguments: dict) -> str:
-    if name != "shell":
-        raise ValueError(f"Unknown tool: {name}")
-    command = arguments.get("command")
-    if not command:
-        raise ValueError("Missing required argument 'command' for shell")
-    result = default_api_module.run_shell_command(**arguments)
+@tool(name="shell", title="Shell Command")
+async def shell(command: str, description: Optional[str] = None, directory: Optional[str] = None) -> str:
+    """
+    Executes a shell command.
+    Args:
+        command: The exact shell command to execute.
+        description: A brief description of the command's purpose.
+        directory: The directory to run the command in.
+    """
+    args = {"command": command, "description": description, "directory": directory}
+    # Filter out None values so we don't pass them to the underlying function
+    args = {k: v for k, v in args.items() if v is not None}
+    result = default_api_module.run_shell_command(**args)
     return json.dumps(result)
 
-@app.call_tool()
-async def read_file(name: str, arguments: dict) -> str:
-    if name != "read_file":
-        raise ValueError(f"Unknown tool: {name}")
-    absolute_path = arguments.get("absolute_path")
-    if not absolute_path:
-        raise ValueError("Missing required argument 'absolute_path' for read_file")
-
-    # Validate path
-    validated_path = validate_path_for_mcp_tool(absolute_path)
-    arguments["absolute_path"] = str(validated_path)
-
-    result = default_api_module.read_file(**arguments)
+@tool(name="read_file", title="Read File")
+async def read_file(absolute_path: str, limit: Optional[float] = None, offset: Optional[float] = None) -> str:
+    """
+    Reads content from a specified file.
+    Args:
+        absolute_path: The absolute path of the file to read.
+        limit: Maximum number of lines to read.
+        offset: Line number to start reading from.
+    """
+    args = {"absolute_path": absolute_path, "limit": limit, "offset": offset}
+    args = {k: v for k, v in args.items() if v is not None}
+    result = default_api_module.read_file(**args)
     return json.dumps(result)
 
-@app.call_tool()
-async def write_file(name: str, arguments: dict) -> str:
-    if name != "write_file":
-        raise ValueError(f"Unknown tool: {name}")
-    file_path = arguments.get("file_path")
-    content = arguments.get("content")
-    if not file_path or not content:
-        raise ValueError("Missing required arguments 'file_path' or 'content' for write_file")
-
-    # Validate path for write operation
-    validated_path = validate_path_for_mcp_tool(file_path, is_write_operation=True)
-    arguments["file_path"] = str(validated_path)
-
-    result = default_api_module.write_file(**arguments)
+@tool(name="write_file", title="Write File")
+async def write_file(file_path: str, content: str) -> str:
+    """
+    Writes content to a specified file.
+    Args:
+        file_path: The absolute path of the file to write to.
+        content: The content to write into the file.
+    """
+    result = default_api_module.write_file(file_path=file_path, content=content)
     return json.dumps(result)
 
-@app.call_tool()
-async def list_directory(name: str, arguments: dict) -> str:
-    if name != "list_directory":
-        raise ValueError(f"Unknown tool: {name}")
-    path = arguments.get("path")
-    if not path:
-        raise ValueError("Missing required argument 'path' for list_directory")
-
-    # Validate path
-    validated_path = validate_path_for_mcp_tool(path)
-    arguments["path"] = str(validated_path)
-
-    result = default_api_module.list_directory(**arguments)
+@tool(name="list_directory", title="List Directory")
+async def list_directory(path: str, ignore: Optional[List[str]] = None, respect_git_ignore: Optional[bool] = None) -> str:
+    """
+    Lists files and subdirectories in a directory.
+    Args:
+        path: The absolute path of the directory to list.
+        ignore: A list of glob patterns to ignore.
+        respect_git_ignore: Whether to respect .gitignore patterns.
+    """
+    args = {"path": path, "ignore": ignore, "respect_git_ignore": respect_git_ignore}
+    args = {k: v for k, v in args.items() if v is not None}
+    result = default_api_module.list_directory(**args)
     return json.dumps(result)
 
-@app.call_tool()
-async def search_file_content(name: str, arguments: dict) -> str:
-    if name != "search_file_content":
-        raise ValueError(f"Unknown tool: {name}")
-    pattern = arguments.get("pattern")
-    if not pattern:
-        raise ValueError("Missing required argument 'pattern' for search_file_content")
-
-    if "path" in arguments and arguments["path"] is not None:
-        validated_path = validate_path_for_mcp_tool(arguments["path"])
-        arguments["path"] = str(validated_path)
-
-    result = default_api_module.search_file_content(**arguments)
+@tool(name="search_file_content", title="Search File Content")
+async def search_file_content(pattern: str, include: Optional[str] = None, path: Optional[str] = None) -> str:
+    """
+    Searches for a regex pattern within file contents.
+    Args:
+        pattern: The regular expression pattern to search for.
+        include: A glob pattern to filter which files are searched.
+        path: The directory to search within.
+    """
+    args = {"pattern": pattern, "include": include, "path": path}
+    args = {k: v for k, v in args.items() if v is not None}
+    result = default_api_module.search_file_content(**args)
     return json.dumps(result)
 
-@app.call_tool()
-async def glob_tool(name: str, arguments: dict) -> str:
-    if name != "glob":
-        raise ValueError(f"Unknown tool: {name}")
-    pattern = arguments.get("pattern")
-    if not pattern:
-        raise ValueError("Missing required argument 'pattern' for glob")
-
-    if "path" in arguments and arguments["path"] is not None:
-        validated_path = validate_path_for_mcp_tool(arguments["path"])
-        arguments["path"] = str(validated_path)
-
-    result = default_api_module.glob(**arguments)
+@tool(name="glob", title="Find Files (Glob)")
+async def glob_tool(pattern: str, case_sensitive: Optional[bool] = None, path: Optional[str] = None, respect_git_ignore: Optional[bool] = None) -> str:
+    """
+    Finds files matching a glob pattern.
+    Args:
+        pattern: The glob pattern to match against (e.g., '**/*.py').
+        case_sensitive: Whether the search should be case-sensitive.
+        path: The directory to search within.
+        respect_git_ignore: Whether to respect .gitignore patterns.
+    """
+    args = {"pattern": pattern, "case_sensitive": case_sensitive, "path": path, "respect_git_ignore": respect_git_ignore}
+    args = {k: v for k, v in args.items() if v is not None}
+    result = default_api_module.glob(**args)
     return json.dumps(result)
 
-@app.call_tool()
-async def replace(name: str, arguments: dict) -> str:
-    if name != "replace":
-        raise ValueError(f"Unknown tool: {name}")
-    file_path = arguments.get("file_path")
-    new_string = arguments.get("new_string")
-    old_string = arguments.get("old_string")
-    if not file_path or not new_string or not old_string:
-        raise ValueError("Missing required arguments 'file_path', 'new_string', or 'old_string' for replace")
-
-    # Validate path for write operation
-    validated_path = validate_path_for_mcp_tool(file_path, is_write_operation=True)
-    arguments["file_path"] = str(validated_path)
-
-    result = default_api_module.replace(**arguments)
+@tool(name="replace", title="Replace Text in File")
+async def replace(file_path: str, new_string: str, old_string: str, expected_replacements: Optional[float] = None) -> str:
+    """
+    Replaces text within a file.
+    Args:
+        file_path: The absolute path of the file to modify.
+        new_string: The new text to insert.
+        old_string: The existing text to be replaced.
+        expected_replacements: The number of occurrences to replace.
+    """
+    args = {"file_path": file_path, "new_string": new_string, "old_string": old_string, "expected_replacements": expected_replacements}
+    args = {k: v for k, v in args.items() if v is not None}
+    result = default_api_module.replace(**args)
     return json.dumps(result)
 
-@app.call_tool()
-async def read_many_files(name: str, arguments: dict) -> str:
-    if name != "read_many_files":
-        raise ValueError(f"Unknown tool: {name}")
-    paths = arguments.get("paths")
-    if not paths:
-        raise ValueError("Missing required argument 'paths' for read_many_files")
-
-    # Validate each path in the list
-    validated_paths = []
-    for p in paths:
-        validated_paths.append(str(validate_path_for_mcp_tool(p)))
-    arguments["paths"] = validated_paths
-
-    result = default_api_module.read_many_files(**arguments)
+@tool(name="read_many_files", title="Read Many Files")
+async def read_many_files(paths: List[str], exclude: Optional[List[str]] = None, include: Optional[List[str]] = None, recursive: Optional[bool] = True, respect_git_ignore: Optional[bool] = True, useDefaultExcludes: Optional[bool] = True) -> str:
+    """
+    Reads content from multiple files.
+    Args:
+        paths: A list of glob patterns or file paths.
+        exclude: Glob patterns for files/directories to exclude.
+        include: Glob patterns to include.
+        recursive: Whether to search recursively.
+        respect_git_ignore: Whether to respect .gitignore patterns.
+        useDefaultExcludes: Whether to apply default exclusion patterns.
+    """
+    args = {"paths": paths, "exclude": exclude, "include": include, "recursive": recursive, "respect_git_ignore": respect_git_ignore, "useDefaultExcludes": useDefaultExcludes}
+    args = {k: v for k, v in args.items() if v is not None}
+    result = default_api_module.read_many_files(**args)
     return json.dumps(result)
 
-@app.call_tool()
-async def save_memory(name: str, arguments: dict) -> str:
-    if name != "save_memory":
-        raise ValueError(f"Unknown tool: {name}")
-    fact = arguments.get("fact")
-    if not fact:
-        raise ValueError("Missing required argument 'fact' for save_memory")
-    result = default_api_module.save_memory(**arguments)
+@tool(name="save_memory", title="Save Memory")
+async def save_memory(fact: str) -> str:
+    """
+    Saves a fact to long-term memory.
+    Args:
+        fact: The piece of information to remember.
+    """
+    result = default_api_module.save_memory(fact=fact)
     return json.dumps(result)
 
 # --- List Tools Endpoint ---
 
 @app.list_tools()
 async def list_tools() -> list[types.Tool]:
-    tools = [
-        types.Tool(
-            name="google_search",
-            title="Google Search",
-            description="Performs a web search using Google Search.",
-            inputSchema=get_json_schema_for_function(default_api_module.google_web_search)
-        ),
-        types.Tool(
-            name="web_fetch",
-            title="Web Fetch",
-            description="Fetches content from URLs specified in the prompt.",
-            inputSchema=get_json_schema_for_function(default_api_module.web_fetch)
-        ),
-        types.Tool(
-            name="shell",
-            title="Shell Command",
-            description="Executes a shell command.",
-            inputSchema=get_json_schema_for_function(default_api_module.run_shell_command)
-        ),
-        types.Tool(
-            name="read_file",
-            title="Read File",
-            description="Reads content from a specified file.",
-            inputSchema=get_json_schema_for_function(default_api_module.read_file)
-        ),
-        types.Tool(
-            name="write_file",
-            title="Write File",
-            description="Writes content to a specified file.",
-            inputSchema=get_json_schema_for_function(default_api_module.write_file)
-        ),
-        types.Tool(
-            name="list_directory",
-            title="List Directory",
-            description="Lists the names of files and subdirectories within a specified directory path.",
-            inputSchema=get_json_schema_for_function(default_api_module.list_directory)
-        ),
-        types.Tool(
-            name="search_file_content",
-            title="Search File Content",
-            description="Searches for a regular expression pattern within the content of files.",
-            inputSchema=get_json_schema_for_function(default_api_module.search_file_content)
-        ),
-        types.Tool(
-            name="glob",
-            title="Find Files (Glob)",
-            description="Efficiently finds files matching specific glob patterns.",
-            inputSchema=get_json_schema_for_function(default_api_module.glob)
-        ),
-        types.Tool(
-            name="replace",
-            title="Replace Text in File",
-            description="Replaces text within a file.",
-            inputSchema=get_json_schema_for_function(default_api_module.replace)
-        ),
-        types.Tool(
-            name="read_many_files",
-            title="Read Many Files",
-            description="Reads content from multiple files specified by paths or glob patterns.",
-            inputSchema=get_json_schema_for_function(default_api_module.read_many_files)
-        ),
-        types.Tool(
-            name="save_memory",
-            title="Save Memory",
-            description="Saves a specific piece of information or fact to your long-term memory.",
-            inputSchema=get_json_schema_for_function(default_api_module.save_memory)
-        ),
-        types.Tool(
-            name="calculate",
-            title="Calculator",
-            description="Evaluates a mathematical expression.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "expression": {"type": "string", "description": "The mathematical expression to evaluate."}
-                },
-                "required": ["expression"]
-            }
-        ),
-    ]
-    return tools
+    return list(_tools.values())
 
 # --- Main Server Setup ---
 

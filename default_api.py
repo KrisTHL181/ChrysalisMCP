@@ -20,13 +20,17 @@ GOOGLE_SEARCH_CX = "YOUR_GOOGLE_SEARCH_CX" # Custom Search Engine ID
 # --- Tool Implementations ---
 
 def google_web_search(query: str) -> Dict:
-    """Performs a web search using Google Search via."""
+    """Performs a web search using Google Search via.
+    
+    Args:
+        query: The search query to find information on the web.
+    """
     logger.debug(f"Performing Google Web Search for: {query}")
     if GOOGLE_SEARCH_API_KEY == "YOUR_GOOGLE_SEARCH_API_KEY":
         logger.warning("Google Search API Key not configured!")
         return {
             "search_results": [
-                {"title": "ALERT", "link": "MCP Server", "snippet": "Google Search API is not configured. Please let the user inform the developer to configure it!"},
+                {"title": "ALERT", "link": "MCP Server", "snippet": "Google Search API is not configured. Please inform the developer to configure it!"},
             ]
         }
     
@@ -42,7 +46,11 @@ def google_web_search(query: str) -> Dict:
         return {"error": f"Google Search API call failed: {e}"}
 
 def web_fetch(prompt: str) -> Dict:
-    """Processes content from URL(s) embedded in a prompt."""
+    """Processes content from URL(s) embedded in a prompt.
+    
+    Args:
+        prompt: A comprehensive prompt that includes the URL(s) (up to 20) to fetch and specific instructions on how to process their content.
+    """
     logger.debug(f"Performing Web Fetch for: {prompt}")
     urls = re.findall(r'https?://[^\s]+', prompt)
     results = []
@@ -59,7 +67,13 @@ def web_fetch(prompt: str) -> Dict:
     return {"fetched_content": results}
 
 def run_shell_command(command: str, description: Optional[str] = None, directory: Optional[str] = None) -> Dict:
-    """Executes a given shell command."""
+    """Executes a given shell command.
+    
+    Args:
+        command: Exact bash command to execute as `bash -c <command>`.
+        description: Brief description of the command for the user.
+        directory: Directory to run the command in.
+    """
     logger.debug(f"Running shell command: {command} (Description: {description}, Directory: {directory})")
     try:
         # Use subprocess to run the command
@@ -98,7 +112,13 @@ def run_shell_command(command: str, description: Optional[str] = None, directory
         return {"error": f"Failed to execute shell command: {e}"}
 
 def read_file(absolute_path: str, limit: Optional[float] = None, offset: Optional[float] = None) -> Dict:
-    """Reads and returns the content of a specified file, handling text, images, and PDFs."""
+    """Reads and returns the content of a specified file, handling text, images, and PDFs.
+    
+    Args:
+        absolute_path: The absolute path to the file to read.
+        limit: For text files, maximum number of lines to read.
+        offset: For text files, the 0-based line number to start reading from.
+    """
 
     logger.debug(f"Reading file: {absolute_path}")
     try:
@@ -126,7 +146,12 @@ def read_file(absolute_path: str, limit: Optional[float] = None, offset: Optiona
         return {"error": f"Failed to read file: {e}"}
 
 def write_file(content: str, file_path: str) -> Dict:
-    """Writes content to a specified file."""
+    """Writes content to a specified file.
+    
+    Args:
+        content: The content to write to the file.
+        file_path: The absolute path to the file to write to.
+    """
     logger.debug(f"Writing to file: {file_path}")
     try:
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
@@ -137,7 +162,13 @@ def write_file(content: str, file_path: str) -> Dict:
         return {"error": f"Failed to write file: {e}"}
 
 def list_directory(path: str, ignore: Optional[List[str]] = None, respect_git_ignore: Optional[bool] = None) -> Dict:
-    """Lists the names of files and subdirectories directly within a specified directory path."""
+    """Lists the names of files and subdirectories directly within a specified directory path.
+    
+    Args:
+        path: The absolute path to the directory to list.
+        ignore: List of glob patterns to ignore.
+        respect_git_ignore: Whether to respect .gitignore patterns.
+    """
     logger.debug(f"Listing directory: {path}")
     try:
         entries = os.listdir(path)
@@ -167,7 +198,13 @@ def list_directory(path: str, ignore: Optional[List[str]] = None, respect_git_ig
         return {"error": f"Failed to list directory: {e}"}
 
 def search_file_content(pattern: str, include: Optional[str] = None, path: Optional[str] = None) -> Dict:
-    """Searches for a regular expression pattern within the content of files."""
+    """Searches for a regular expression pattern within the content of files.
+    
+    Args:
+        pattern: The regular expression (regex) pattern to search for.
+        include: A glob pattern to filter which files are searched.
+        path: The absolute path to the directory to search within.
+    """
     logger.debug(f"Searching file content for pattern: {pattern} in path: {path}")
     matches = []
     target_path = path if path else os.getcwd()
@@ -186,7 +223,14 @@ def search_file_content(pattern: str, include: Optional[str] = None, path: Optio
     return {"output": "\n".join(matches) if matches else "No matches found."}
 
 def glob(pattern: str, case_sensitive: Optional[bool] = None, path: Optional[str] = None, respect_git_ignore: Optional[bool] = None) -> Dict:
-    """Efficiently finds files matching specific glob patterns, with gitignore support and sorting."""
+    """Efficiently finds files matching specific glob patterns, with gitignore support and sorting.
+    
+    Args:
+        pattern: The glob pattern to match against.
+        case_sensitive: Whether the search should be case-sensitive.
+        path: The absolute path to the directory to search within.
+        respect_git_ignore: Whether to respect .gitignore patterns.
+    """
     logger.debug(f"Globbing for pattern: {pattern} in path: {path}")
     target_path = path if path else os.getcwd()
     
@@ -219,7 +263,14 @@ def glob(pattern: str, case_sensitive: Optional[bool] = None, path: Optional[str
     return {"output": "\n".join(all_files)}
 
 def replace(file_path: str, new_string: str, old_string: str, expected_replacements: Optional[float] = None) -> Dict:
-    """Replaces text within a file."""
+    """Replaces text within a file.
+    
+    Args:
+        file_path: The absolute path to the file to modify.
+        new_string: The new string to replace the old one with.
+        old_string: The string to be replaced.
+        expected_replacements: The number of occurrences to replace.
+    """
     logger.debug(f"Replacing content in file: {file_path}")
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
@@ -246,7 +297,16 @@ def replace(file_path: str, new_string: str, old_string: str, expected_replaceme
         return {"error": f"Failed to replace content: {e}"}
 
 def read_many_files(paths: List[str], exclude: Optional[List[str]] = None, include: Optional[List[str]] = None, recursive: Optional[bool] = True, respect_git_ignore: Optional[bool] = True, useDefaultExcludes: Optional[bool] = True) -> Dict:
-    """Reads content from multiple files specified by paths or glob patterns, with advanced filtering."""
+    """Reads content from multiple files specified by paths or glob patterns, with advanced filtering.
+    
+    Args:
+        paths: An array of glob patterns or paths.
+        exclude: Glob patterns for files/directories to exclude.
+        include: Additional glob patterns to include.
+        recursive: Whether to search recursively.
+        respect_git_ignore: Whether to respect .gitignore patterns.
+        useDefaultExcludes: Whether to apply a list of default exclusion patterns.
+    """
     logger.debug(f"Reading many files from paths: {paths}")
     all_content = []
     
@@ -275,7 +335,11 @@ def read_many_files(paths: List[str], exclude: Optional[List[str]] = None, inclu
     return {"output": "\n\n".join(all_content) if all_content else "No files read."}
 
 def save_memory(fact: str) -> Dict:
-    """Saves a specific piece of information or fact to your long-term memory."""
+    """Saves a specific piece of information or fact to your long-term memory.
+    
+    Args:
+        fact: The specific fact or piece of information to remember.
+    """
     logger.debug(f"Saving memory: {fact}")
     try:
         # Use a file in the user's home directory to store memories
