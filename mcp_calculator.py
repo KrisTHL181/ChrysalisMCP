@@ -2,7 +2,7 @@ import math
 import ast
 import json
 from loguru import logger
-from operator import add, sub, mul, truediv, pow, mod
+from operator import add, sub, mul, truediv, mod
 
 # Allowed mathematical functions and constants
 _allowed_names = {
@@ -18,6 +18,7 @@ _allowed_names = {
     "mul": mul,
     "div": truediv,
     "mod": mod,
+    "pow": pow,
     "math": {
         "sqrt": math.sqrt,
         "sin": math.sin,
@@ -32,7 +33,6 @@ _allowed_names = {
         "radians": math.radians,
         "floor": math.floor,
         "ceil": math.ceil,
-        "pow": math.pow,
         "fabs": math.fabs,
         "fmod": math.fmod,
         "gcd": math.gcd,
