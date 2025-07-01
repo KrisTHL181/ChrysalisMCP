@@ -1,5 +1,6 @@
 faiss_index/
 temp/
 __pycache__/
+mcp_resources/
 .ruff_cache/
 chunks.json
