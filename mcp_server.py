@@ -563,8 +563,22 @@ async def call_tool_handler(name: str, arguments: dict) -> str:
 
     # Call the actual tool implementation
     implementation = _tool_implementations[internal_tool_name]
-    result = await implementation(**arguments)
-    return result
+    result_str = await implementation(**arguments)
+
+    # The result from the tool implementation is a JSON string.
+    # We need to parse it to be able to embed it in the final JSON structure.
+    try:
+        result_json = json.loads(result_str)
+    except json.JSONDecodeError:
+        # If it's not a valid JSON string, wrap it in a dictionary with an "output" key.
+        result_json = {"output": result_str}
+
+    # The final result must be a JSON string representing the ToolResult
+    final_result = {
+        "tool_name": name,
+        "result": result_json,
+    }
+    return json.dumps(final_result)
 
 
 @tool(name="calculate", title="Calculator")
@@ -801,6 +815,11 @@ async def list_tools() -> list[types.Tool]:
     help="Transport type",
 )
 def main(port: int, transport: str) -> int:
+    import initializer_fix
+
+    initializer_fix.apply_patch()
+    # This issue is difficult to resolve due to its origin within the MCP library itself,
+    # This patch simply overrides the function that throws the exception, allowing the service to run.
     if transport == "sse":
         sse = SseServerTransport("/messages/")
 
