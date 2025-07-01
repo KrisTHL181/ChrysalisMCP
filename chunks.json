@@ -1,8 +1,6 @@
 [
     {
         "page_content": "This is a test text file.",
-        "metadata": {
-            "source": "mcp_resources\\test.txt"
-        }
+        "metadata": {"source": "mcp_resources\\test.txt"},
     }
 ]
