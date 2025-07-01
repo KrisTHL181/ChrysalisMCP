@@ -491,11 +491,14 @@ async def list_resources() -> list[types.Resource]:
 
 @app.read_resource()
 async def read_resource(uri: str) -> str:
-    # Extract the relative path from the URI
-    if not uri.startswith("file:///"):
-        raise ValueError(f"Unsupported resource URI scheme: {uri}")
+    # The 'uri' parameter can be a Pydantic AnyUrl object, so we convert it to a string
+    uri_str = f"{uri}"
 
-    relative_path_str = uri[len("file:///") :]
+    # Extract the relative path from the URI
+    if not uri_str.startswith("file:///"):
+        raise ValueError(f"Unsupported resource URI scheme: {uri_str}")
+
+    relative_path_str = uri_str[len("file:///") :]
     file_path = RESOURCE_BASE_DIR / relative_path_str
 
     if not file_path.is_file() or not file_path.exists():
@@ -523,11 +526,17 @@ async def read_resource(uri: str) -> str:
 
 @app.call_tool()
 async def call_tool_handler(name: str, arguments: dict) -> str:
-    if name not in _tool_implementations:
+    # Create a mapping from the tool title (used by the client) to the internal tool name
+    title_to_name_map = {
+        tool.name: internal_name for internal_name, tool in _tools.items()
+    }
+    internal_tool_name = title_to_name_map.get(name)
+
+    if not internal_tool_name or internal_tool_name not in _tool_implementations:
         raise ValueError(f"Unknown tool: {name}")
 
     # Special path validation logic
-    if name in [
+    if internal_tool_name in [
         "read_file",
         "write_file",
         "list_directory",
@@ -539,7 +548,7 @@ async def call_tool_handler(name: str, arguments: dict) -> str:
         path_arg_names = ["absolute_path", "file_path", "path", "paths"]
         for arg_name in path_arg_names:
             if arg_name in arguments:
-                is_write = name in ["write_file", "replace"]
+                is_write = internal_tool_name in ["write_file", "replace"]
                 if isinstance(arguments[arg_name], list):
                     validated_paths = [
                         str(validate_path_for_mcp_tool(p, is_write))
@@ -553,7 +562,7 @@ async def call_tool_handler(name: str, arguments: dict) -> str:
                     arguments[arg_name] = str(validated_path)
 
     # Call the actual tool implementation
-    implementation = _tool_implementations[name]
+    implementation = _tool_implementations[internal_tool_name]
     result = await implementation(**arguments)
     return result
 
