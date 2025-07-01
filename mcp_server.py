@@ -6,6 +6,8 @@ from mcp.server.lowlevel import Server
 from mcp.server.sse import SseServerTransport
 from starlette.applications import Starlette
 from starlette.routing import Mount, Route
+from starlette.requests import Request
+from starlette.responses import Response
 import uvicorn
 import inspect
 import json
@@ -30,18 +32,21 @@ bm25_retriever = None
 all_chunks = []
 global_memory_content = ""
 
+
 async def load_rag_components():
     global rag_vectorstore, rag_embeddings, bm25_retriever, all_chunks, global_memory_content
     logger.info("Loading RAG components...")
     try:
         rag_embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
-        rag_vectorstore = FAISS.load_local(FAISS_INDEX_PATH, rag_embeddings, allow_dangerous_deserialization=True)
+        rag_vectorstore = FAISS.load_local(
+            FAISS_INDEX_PATH, rag_embeddings, allow_dangerous_deserialization=True
+        )
         logger.info("FAISS vector store loaded.")
 
         # Load all chunks for BM25
-        with open(CHUNKS_PATH, 'r', encoding='utf-8') as f:
+        with open(CHUNKS_PATH, "r", encoding="utf-8") as f:
             all_chunks_data = json.load(f)
-        all_chunks = [d['page_content'] for d in all_chunks_data]
+        all_chunks = [d["page_content"] for d in all_chunks_data]
         tokenized_corpus = [doc.split(" ") for doc in all_chunks]
         bm25_retriever = BM25Okapi(tokenized_corpus)
         logger.info("BM25 retriever initialized.")
@@ -49,11 +54,13 @@ async def load_rag_components():
         # Load global memory content
         global_memory_file = os.path.expanduser("~/.ChrysalisMCP/global_memory.md")
         if os.path.exists(global_memory_file):
-            with open(global_memory_file, 'r', encoding='utf-8') as f:
+            with open(global_memory_file, "r", encoding="utf-8") as f:
                 global_memory_content = f.read()
             logger.info("Global memory loaded.")
         else:
-            logger.warning("Global memory file not found. It will be created on first update.")
+            logger.warning(
+                "Global memory file not found. It will be created on first update."
+            )
 
         logger.info("RAG components loaded successfully.")
     except Exception as e:
@@ -64,11 +71,12 @@ async def load_rag_components():
         all_chunks = []
         global_memory_content = ""
 
+
 # --- Resource Definitions ---
 RESOURCE_BASE_DIR = Path("./mcp_resources").resolve()
 
 # Global flag for security
-ALLOW_ABSOLUTE_PATHS = False # Will be set by CLI option
+ALLOW_ABSOLUTE_PATHS = False  # Will be set by CLI option
 
 # Import the default_api which provides access to the CLI tools
 import default_api as default_api_module
@@ -78,19 +86,21 @@ import mcp_calculator
 _tools: Dict[str, types.Tool] = {}
 _tool_implementations: Dict[str, Callable[..., Awaitable[str]]] = {}
 
+
 def tool(name: str, title: str):
     """Decorator to register a function as a tool."""
+
     def decorator(func: Callable[..., Awaitable[str]]):
         # Extract schema from signature and docstring
         signature = inspect.signature(func)
         docstring = inspect.getdoc(func)
-        
+
         # Parse the docstring to get parameter descriptions
         param_descriptions = {}
         if docstring:
             arg_section = re.search(r"Args:\n((.|\n)*)", docstring)
             if arg_section:
-                arg_lines = arg_section.group(1).strip().split('\n')
+                arg_lines = arg_section.group(1).strip().split("\n")
                 for line in arg_lines:
                     match = re.match(r"\s*(\w+)\s*:\s*(.*)", line)
                     if match:
@@ -100,32 +110,44 @@ def tool(name: str, title: str):
         properties = {}
         required = []
         type_mapping = {
-            str: "string", int: "number", float: "number",
-            bool: "boolean", dict: "object", list: "array", None: "null"
+            str: "string",
+            int: "number",
+            float: "number",
+            bool: "boolean",
+            dict: "object",
+            list: "array",
+            None: "null",
         }
 
         for param_name, param in signature.parameters.items():
-            if param_name in ('self', 'name', 'arguments'):
+            if param_name in ("self", "name", "arguments"):
                 continue
 
             param_type = "string"
             is_optional = False
             items_type = "string"
 
-            if hasattr(param.annotation, '__origin__'):
+            if hasattr(param.annotation, "__origin__"):
                 if param.annotation.__origin__ is Optional:
                     is_optional = True
                     inner_type = param.annotation.__args__[0]
-                    if hasattr(inner_type, '__origin__') and inner_type.__origin__ is list:
+                    if (
+                        hasattr(inner_type, "__origin__")
+                        and inner_type.__origin__ is list
+                    ):
                         param_type = "array"
                         if inner_type.__args__:
-                            items_type = type_mapping.get(inner_type.__args__[0], "string")
+                            items_type = type_mapping.get(
+                                inner_type.__args__[0], "string"
+                            )
                     else:
                         param_type = type_mapping.get(inner_type, "string")
                 elif param.annotation.__origin__ is list:
                     param_type = "array"
                     if param.annotation.__args__:
-                        items_type = type_mapping.get(param.annotation.__args__[0], "string")
+                        items_type = type_mapping.get(
+                            param.annotation.__args__[0], "string"
+                        )
                 else:
                     param_type = type_mapping.get(param.annotation, "string")
             elif param.annotation is not inspect.Parameter.empty:
@@ -135,27 +157,39 @@ def tool(name: str, title: str):
 
             description = param_descriptions.get(param_name, f"Parameter {param_name}")
             if param_type == "array":
-                properties[param_name] = {"type": "array", "items": {"type": items_type}, "description": description}
+                properties[param_name] = {
+                    "type": "array",
+                    "items": {"type": items_type},
+                    "description": description,
+                }
             else:
-                properties[param_name] = {"type": param_type, "description": description}
+                properties[param_name] = {
+                    "type": param_type,
+                    "description": description,
+                }
 
             if param.default is inspect.Parameter.empty and not is_optional:
                 required.append(param_name)
 
         # Extract tool description from the first line of the docstring
-        description = docstring.split('\n')[0] if docstring else "No description available."
+        description = (
+            docstring.split("\n")[0] if docstring else "No description available."
+        )
 
-        input_schema = {"type": "object", "properties": properties, "required": required}
-        
+        input_schema = {
+            "type": "object",
+            "properties": properties,
+            "required": required,
+        }
+
         _tools[name] = types.Tool(
-            name=name,
-            title=title,
-            description=description,
-            inputSchema=input_schema
+            name=title, description=description, inputSchema=input_schema
         )
         _tool_implementations[name] = func
         return func
+
     return decorator
+
 
 app = Server("mcp-cli-tools-server")
 
@@ -168,7 +202,7 @@ PROMPTS = {
             types.PromptArgument(
                 name="changes",
                 description="Description of code changes or git diff output.",
-                required=True
+                required=True,
             )
         ],
     ),
@@ -177,15 +211,13 @@ PROMPTS = {
         description="Explain how a given code snippet works.",
         arguments=[
             types.PromptArgument(
-                name="code",
-                description="The code snippet to explain.",
-                required=True
+                name="code", description="The code snippet to explain.", required=True
             ),
             types.PromptArgument(
                 name="language",
                 description="The programming language of the code (e.g., python, javascript).",
-                required=False
-            )
+                required=False,
+            ),
         ],
     ),
     "summarize-text": types.Prompt(
@@ -193,15 +225,13 @@ PROMPTS = {
         description="Summarize a given text.",
         arguments=[
             types.PromptArgument(
-                name="text",
-                description="The text to summarize.",
-                required=True
+                name="text", description="The text to summarize.", required=True
             ),
             types.PromptArgument(
                 name="length",
                 description="Desired length of the summary (e.g., short, medium, long).",
-                required=False
-            )
+                required=False,
+            ),
         ],
     ),
     "generate-code": types.Prompt(
@@ -211,13 +241,13 @@ PROMPTS = {
             types.PromptArgument(
                 name="description",
                 description="Description of the code to generate.",
-                required=True
+                required=True,
             ),
             types.PromptArgument(
                 name="language",
                 description="The programming language for the generated code.",
-                required=False
-            )
+                required=False,
+            ),
         ],
     ),
     "ask-rag": types.Prompt(
@@ -225,9 +255,7 @@ PROMPTS = {
         description="Ask a question that can be answered by retrieving information from the local knowledge base.",
         arguments=[
             types.PromptArgument(
-                name="query",
-                description="The question to ask.",
-                required=True
+                name="query", description="The question to ask.", required=True
             )
         ],
     ),
@@ -236,22 +264,22 @@ PROMPTS = {
         description="Generate a retrieval clue based on a query and global memory.",
         arguments=[
             types.PromptArgument(
-                name="query",
-                description="The original user query.",
-                required=True
+                name="query", description="The original user query.", required=True
             ),
             types.PromptArgument(
                 name="global_memory",
                 description="Summary of the global knowledge base.",
-                required=False
-            )
+                required=False,
+            ),
         ],
     ),
 }
 
+
 @app.list_prompts()
 async def list_prompts() -> list[types.Prompt]:
     return list(PROMPTS.values())
+
 
 @app.get_prompt()
 async def get_prompt(
@@ -268,8 +296,8 @@ async def get_prompt(
                     role="user",
                     content=types.TextContent(
                         type="text",
-                        text=f"Generate a concise and descriptive Git commit message for the following changes:\n\n{changes}"
-                    )
+                        text=f"Generate a concise and descriptive Git commit message for the following changes:\n\n{changes}",
+                    ),
                 )
             ]
         )
@@ -283,8 +311,8 @@ async def get_prompt(
                     role="user",
                     content=types.TextContent(
                         type="text",
-                        text=f"Explain how this {language} code works:\n\n```\n{code}\n```"
-                    )
+                        text=f"Explain how this {language} code works:\n\n```\n{code}\n```",
+                    ),
                 )
             ]
         )
@@ -298,8 +326,8 @@ async def get_prompt(
                     role="user",
                     content=types.TextContent(
                         type="text",
-                        text=f"Summarize the following text. Desired length: {length}.\n\n{text}"
-                    )
+                        text=f"Summarize the following text. Desired length: {length}.\n\n{text}",
+                    ),
                 )
             ]
         )
@@ -313,29 +341,28 @@ async def get_prompt(
                     role="user",
                     content=types.TextContent(
                         type="text",
-                        text=f"Generate {language} code for the following description:\n\n{description}"
-                    )
+                        text=f"Generate {language} code for the following description:\n\n{description}",
+                    ),
                 )
             ]
         )
 
     if name == "ask-rag":
         query = arguments.get("query", "") if arguments else ""
-        clue_query = arguments.get("clue_query", "") if arguments else "" # Add clue_query argument
+        clue_query = (
+            arguments.get("clue_query", "") if arguments else ""
+        )  # Add clue_query argument
 
         if not query:
             raise ValueError("Missing required argument 'query' for ask-rag")
 
-        if not clue_query: # If clue_query is not provided, generate a clue
+        if not clue_query:  # If clue_query is not provided, generate a clue
             clue_prompt_text = f"""Based on the following original query and global memory summary, generate a more detailed and comprehensive retrieval query (clue) that would help find relevant information. The clue should be a single, concise query.\n\nOriginal Query: {query}\nGlobal Memory Summary: {global_memory_content}\n\nGenerated Clue:"""
             return types.GetPromptResult(
                 messages=[
                     types.PromptMessage(
                         role="user",
-                        content=types.TextContent(
-                            type="text",
-                            text=clue_prompt_text
-                        )
+                        content=types.TextContent(type="text", text=clue_prompt_text),
                     )
                 ]
             )
@@ -348,24 +375,30 @@ async def get_prompt(
                         role="user",
                         content=types.TextContent(
                             type="text",
-                            text="RAG knowledge base is not available. Please inform the developer."
-                        )
+                            text="RAG knowledge base is not available. Please inform the developer.",
+                        ),
                     )
                 ]
             )
 
-        logger.info(f"Performing RAG search for query: {query} with clue: {clue_query}") # Log clue_query
-        
+        logger.info(
+            f"Performing RAG search for query: {query} with clue: {clue_query}"
+        )  # Log clue_query
+
         # Semantic search (FAISS)
-        faiss_docs = rag_vectorstore.similarity_search(clue_query, k=5) # Use clue_query for search
+        faiss_docs = rag_vectorstore.similarity_search(
+            clue_query, k=5
+        )  # Use clue_query for search
         faiss_context = "\n\n".join([doc.page_content for doc in faiss_docs])
         logger.debug(f"Retrieved FAISS context:\n{faiss_context}")
 
         # Keyword search (BM25)
-        tokenized_query = clue_query.split(" ") # Use clue_query for BM25
+        tokenized_query = clue_query.split(" ")  # Use clue_query for BM25
         bm25_scores = bm25_retriever.get_scores(tokenized_query)
         # Get top 5 BM25 documents based on scores
-        top_bm25_indices = sorted(range(len(bm25_scores)), key=lambda i: bm25_scores[i], reverse=True)[:5]
+        top_bm25_indices = sorted(
+            range(len(bm25_scores)), key=lambda i: bm25_scores[i], reverse=True
+        )[:5]
         bm25_docs = [all_chunks[i] for i in top_bm25_indices]
         bm25_context = "\n\n".join(bm25_docs)
         logger.debug(f"Retrieved BM25 context:\n{bm25_context}")
@@ -379,11 +412,7 @@ async def get_prompt(
         return types.GetPromptResult(
             messages=[
                 types.PromptMessage(
-                    role="user",
-                    content=types.TextContent(
-                        type="text",
-                        text=rag_prompt
-                    )
+                    role="user", content=types.TextContent(type="text", text=rag_prompt)
                 )
             ]
         )
@@ -391,25 +420,25 @@ async def get_prompt(
     if name == "generate-clue":
         query = arguments.get("query", "") if arguments else ""
         global_memory = arguments.get("global_memory", "") if arguments else ""
-        
+
         clue_prompt_text = f"""Based on the following original query and global memory summary, generate a more detailed and comprehensive retrieval query (clue) that would help find relevant information. The clue should be a single, concise query.\n\nOriginal Query: {query}\nGlobal Memory Summary: {global_memory}\n\nGenerated Clue:"""
 
         return types.GetPromptResult(
             messages=[
                 types.PromptMessage(
                     role="user",
-                    content=types.TextContent(
-                        type="text",
-                        text=clue_prompt_text
-                    )
+                    content=types.TextContent(type="text", text=clue_prompt_text),
                 )
             ]
         )
 
     raise ValueError("Prompt implementation not found")
 
+
 # Helper for path validation
-def validate_path_for_mcp_tool(input_path: str, is_write_operation: bool = False) -> Path:
+def validate_path_for_mcp_tool(
+    input_path: str, is_write_operation: bool = False
+) -> Path:
     resolved_path = Path(input_path).resolve()
     current_working_dir = Path(os.getcwd()).resolve()
 
@@ -428,7 +457,9 @@ def validate_path_for_mcp_tool(input_path: str, is_write_operation: bool = False
                 resolved_path.relative_to(RESOURCE_BASE_DIR)
                 return resolved_path
             except ValueError:
-                raise ValueError(f"Access denied: Path '{input_path}' is outside allowed directories (current working directory or mcp_resources).")
+                raise ValueError(
+                    f"Access denied: Path '{input_path}' is outside allowed directories (current working directory or mcp_resources)."
+                )
 
 
 @app.list_resources()
@@ -438,24 +469,25 @@ async def list_resources() -> list[types.Resource]:
     RESOURCE_BASE_DIR.mkdir(parents=True, exist_ok=True)
 
     # Dynamically list files in the resource base directory
-    for file_path in RESOURCE_BASE_DIR.rglob("*"): # rglob for recursive search
+    for file_path in RESOURCE_BASE_DIR.rglob("*"):  # rglob for recursive search
         if file_path.is_file():
             relative_path = file_path.relative_to(RESOURCE_BASE_DIR)
-            uri = f"file:///{relative_path.as_posix()}" # Use posix path for URI consistency
+            uri = f"file:///{relative_path.as_posix()}"  # Use posix path for URI consistency
             name = relative_path.name
             mime_type, _ = mimetypes.guess_type(file_path.name)
             if mime_type is None:
-                mime_type = "application/octet-stream" # Default to generic binary if type cannot be guessed
+                mime_type = "application/octet-stream"  # Default to generic binary if type cannot be guessed
 
             resources.append(
                 types.Resource(
                     uri=uri,
                     name=name,
                     mimeType=mime_type,
-                    description=f"Dynamically discovered resource: {relative_path}"
+                    description=f"Dynamically discovered resource: {relative_path}",
                 )
             )
     return resources
+
 
 @app.read_resource()
 async def read_resource(uri: str) -> str:
@@ -463,7 +495,7 @@ async def read_resource(uri: str) -> str:
     if not uri.startswith("file:///"):
         raise ValueError(f"Unsupported resource URI scheme: {uri}")
 
-    relative_path_str = uri[len("file:///"):]
+    relative_path_str = uri[len("file:///") :]
     file_path = RESOURCE_BASE_DIR / relative_path_str
 
     if not file_path.is_file() or not file_path.exists():
@@ -473,7 +505,9 @@ async def read_resource(uri: str) -> str:
     try:
         file_path.relative_to(RESOURCE_BASE_DIR)
     except ValueError:
-        raise ValueError(f"Access denied: {uri} is outside the allowed resource directory.")
+        raise ValueError(
+            f"Access denied: {uri} is outside the allowed resource directory."
+        )
 
     # Use the default_api_module.read_file to read the content
     # Note: default_api_module.read_file currently returns text.
@@ -483,30 +517,46 @@ async def read_resource(uri: str) -> str:
         raise ValueError(f"Failed to read resource {uri}: {result["error"]}")
     return result["output"]
 
+
 # --- Tool Implementations ---
+
 
 @app.call_tool()
 async def call_tool_handler(name: str, arguments: dict) -> str:
     if name not in _tool_implementations:
         raise ValueError(f"Unknown tool: {name}")
-    
+
     # Special path validation logic
-    if name in ["read_file", "write_file", "list_directory", "search_file_content", "glob", "replace", "read_many_files"]:
+    if name in [
+        "read_file",
+        "write_file",
+        "list_directory",
+        "search_file_content",
+        "glob",
+        "replace",
+        "read_many_files",
+    ]:
         path_arg_names = ["absolute_path", "file_path", "path", "paths"]
         for arg_name in path_arg_names:
             if arg_name in arguments:
                 is_write = name in ["write_file", "replace"]
                 if isinstance(arguments[arg_name], list):
-                    validated_paths = [str(validate_path_for_mcp_tool(p, is_write)) for p in arguments[arg_name]]
+                    validated_paths = [
+                        str(validate_path_for_mcp_tool(p, is_write))
+                        for p in arguments[arg_name]
+                    ]
                     arguments[arg_name] = validated_paths
                 else:
-                    validated_path = validate_path_for_mcp_tool(arguments[arg_name], is_write)
+                    validated_path = validate_path_for_mcp_tool(
+                        arguments[arg_name], is_write
+                    )
                     arguments[arg_name] = str(validated_path)
 
     # Call the actual tool implementation
     implementation = _tool_implementations[name]
     result = await implementation(**arguments)
     return result
+
 
 @tool(name="calculate", title="Calculator")
 async def calculate(expression: str) -> str:
@@ -521,6 +571,7 @@ async def calculate(expression: str) -> str:
     except Exception as e:
         return json.dumps({"error": str(e)})
 
+
 @tool(name="google_search", title="Google Search")
 async def google_search(query: str) -> str:
     """
@@ -530,6 +581,7 @@ async def google_search(query: str) -> str:
     """
     result = default_api_module.google_web_search(query=query)
     return json.dumps(result)
+
 
 @tool(name="web_fetch", title="Web Fetch")
 async def web_fetch(prompt: str) -> str:
@@ -541,8 +593,11 @@ async def web_fetch(prompt: str) -> str:
     result = default_api_module.web_fetch(prompt=prompt)
     return json.dumps(result)
 
+
 @tool(name="shell", title="Shell Command")
-async def shell(command: str, description: Optional[str] = None, directory: Optional[str] = None) -> str:
+async def shell(
+    command: str, description: Optional[str] = None, directory: Optional[str] = None
+) -> str:
     """
     Executes a shell command.
     Args:
@@ -556,8 +611,11 @@ async def shell(command: str, description: Optional[str] = None, directory: Opti
     result = default_api_module.run_shell_command(**args)
     return json.dumps(result)
 
+
 @tool(name="read_file", title="Read File")
-async def read_file(absolute_path: str, limit: Optional[float] = None, offset: Optional[float] = None) -> str:
+async def read_file(
+    absolute_path: str, limit: Optional[float] = None, offset: Optional[float] = None
+) -> str:
     """
     Reads content from a specified file.
     Args:
@@ -570,6 +628,7 @@ async def read_file(absolute_path: str, limit: Optional[float] = None, offset: O
     result = default_api_module.read_file(**args)
     return json.dumps(result)
 
+
 @tool(name="write_file", title="Write File")
 async def write_file(file_path: str, content: str) -> str:
     """
@@ -581,8 +640,13 @@ async def write_file(file_path: str, content: str) -> str:
     result = default_api_module.write_file(file_path=file_path, content=content)
     return json.dumps(result)
 
+
 @tool(name="list_directory", title="List Directory")
-async def list_directory(path: str, ignore: Optional[List[str]] = None, respect_git_ignore: Optional[bool] = None) -> str:
+async def list_directory(
+    path: str,
+    ignore: Optional[List[str]] = None,
+    respect_git_ignore: Optional[bool] = None,
+) -> str:
     """
     Lists files and subdirectories in a directory.
     Args:
@@ -595,8 +659,11 @@ async def list_directory(path: str, ignore: Optional[List[str]] = None, respect_
     result = default_api_module.list_directory(**args)
     return json.dumps(result)
 
+
 @tool(name="search_file_content", title="Search File Content")
-async def search_file_content(pattern: str, include: Optional[str] = None, path: Optional[str] = None) -> str:
+async def search_file_content(
+    pattern: str, include: Optional[str] = None, path: Optional[str] = None
+) -> str:
     """
     Searches for a regex pattern within file contents.
     Args:
@@ -609,8 +676,14 @@ async def search_file_content(pattern: str, include: Optional[str] = None, path:
     result = default_api_module.search_file_content(**args)
     return json.dumps(result)
 
+
 @tool(name="glob", title="Find Files (Glob)")
-async def glob_tool(pattern: str, case_sensitive: Optional[bool] = None, path: Optional[str] = None, respect_git_ignore: Optional[bool] = None) -> str:
+async def glob_tool(
+    pattern: str,
+    case_sensitive: Optional[bool] = None,
+    path: Optional[str] = None,
+    respect_git_ignore: Optional[bool] = None,
+) -> str:
     """
     Finds files matching a glob pattern.
     Args:
@@ -619,13 +692,24 @@ async def glob_tool(pattern: str, case_sensitive: Optional[bool] = None, path: O
         path: The directory to search within.
         respect_git_ignore: Whether to respect .gitignore patterns.
     """
-    args = {"pattern": pattern, "case_sensitive": case_sensitive, "path": path, "respect_git_ignore": respect_git_ignore}
+    args = {
+        "pattern": pattern,
+        "case_sensitive": case_sensitive,
+        "path": path,
+        "respect_git_ignore": respect_git_ignore,
+    }
     args = {k: v for k, v in args.items() if v is not None}
     result = default_api_module.glob(**args)
     return json.dumps(result)
 
+
 @tool(name="replace", title="Replace Text in File")
-async def replace(file_path: str, new_string: str, old_string: str, expected_replacements: Optional[float] = None) -> str:
+async def replace(
+    file_path: str,
+    new_string: str,
+    old_string: str,
+    expected_replacements: Optional[float] = None,
+) -> str:
     """
     Replaces text within a file.
     Args:
@@ -634,13 +718,26 @@ async def replace(file_path: str, new_string: str, old_string: str, expected_rep
         old_string: The existing text to be replaced.
         expected_replacements: The number of occurrences to replace.
     """
-    args = {"file_path": file_path, "new_string": new_string, "old_string": old_string, "expected_replacements": expected_replacements}
+    args = {
+        "file_path": file_path,
+        "new_string": new_string,
+        "old_string": old_string,
+        "expected_replacements": expected_replacements,
+    }
     args = {k: v for k, v in args.items() if v is not None}
     result = default_api_module.replace(**args)
     return json.dumps(result)
 
+
 @tool(name="read_many_files", title="Read Many Files")
-async def read_many_files(paths: List[str], exclude: Optional[List[str]] = None, include: Optional[List[str]] = None, recursive: Optional[bool] = True, respect_git_ignore: Optional[bool] = True, useDefaultExcludes: Optional[bool] = True) -> str:
+async def read_many_files(
+    paths: List[str],
+    exclude: Optional[List[str]] = None,
+    include: Optional[List[str]] = None,
+    recursive: Optional[bool] = True,
+    respect_git_ignore: Optional[bool] = True,
+    useDefaultExcludes: Optional[bool] = True,
+) -> str:
     """
     Reads content from multiple files.
     Args:
@@ -651,10 +748,18 @@ async def read_many_files(paths: List[str], exclude: Optional[List[str]] = None,
         respect_git_ignore: Whether to respect .gitignore patterns.
         useDefaultExcludes: Whether to apply default exclusion patterns.
     """
-    args = {"paths": paths, "exclude": exclude, "include": include, "recursive": recursive, "respect_git_ignore": respect_git_ignore, "useDefaultExcludes": useDefaultExcludes}
+    args = {
+        "paths": paths,
+        "exclude": exclude,
+        "include": include,
+        "recursive": recursive,
+        "respect_git_ignore": respect_git_ignore,
+        "useDefaultExcludes": useDefaultExcludes,
+    }
     args = {k: v for k, v in args.items() if v is not None}
     result = default_api_module.read_many_files(**args)
     return json.dumps(result)
+
 
 @tool(name="save_memory", title="Save Memory")
 async def save_memory(fact: str) -> str:
@@ -666,30 +771,43 @@ async def save_memory(fact: str) -> str:
     result = default_api_module.save_memory(fact=fact)
     return json.dumps(result)
 
+
 # --- List Tools Endpoint ---
+
 
 @app.list_tools()
 async def list_tools() -> list[types.Tool]:
     return list(_tools.values())
 
+
 # --- Main Server Setup ---
+
 
 @click.command()
 @click.option("--port", default=8000, help="Port to listen on for SSE")
 @click.option(
     "--transport",
     type=click.Choice(["stdio", "sse"]),
-    default="sse", # Default to SSE for web-based interaction
+    default="sse",  # Default to SSE for web-based interaction
     help="Transport type",
 )
 def main(port: int, transport: str) -> int:
     if transport == "sse":
         sse = SseServerTransport("/messages/")
 
+        async def handle_sse(request: Request):
+            async with sse.connect_sse(
+                request.scope, request.receive, request._send
+            ) as streams:
+                await app.run(
+                    streams[0], streams[1], app.create_initialization_options()
+                )
+            return Response()
+
         starlette_app = Starlette(
             debug=True,
             routes=[
-                Route("/sse", endpoint=sse, methods=["GET"]),
+                Route("/sse", endpoint=handle_sse, methods=["GET"]),
                 Mount("/messages/", app=sse.handle_post_message),
             ],
         )
@@ -713,6 +831,7 @@ def main(port: int, transport: str) -> int:
         anyio.run(arun)
 
     return 0
+
 
 if __name__ == "__main__":
     main()
